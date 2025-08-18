@@ -370,24 +370,26 @@ class ShopifyClient:
         
         # Extract valid Shopify IDs
         new_product_ids = []
-        products_without_id = 0
+        products_without_id = []
         
         for product in filtered_products:
             if product.shopify_id and product.shopify_id > 0:
                 new_product_ids.append(product.shopify_id)
             else:
-                products_without_id += 1
-                logger.warning(f"Product '{product.product_name}' has no valid Shopify ID, skipping")
+                products_without_id.append(product.product_name)
+                logger.warning(f"❌ Product '{product.product_name}' has no valid Shopify ID (current ID: {product.shopify_id}), skipping")
         
-        if products_without_id > 0:
-            logger.warning(f"⚠️  {products_without_id} products skipped due to missing Shopify IDs")
+        if products_without_id:
+            logger.warning(f"⚠️  {len(products_without_id)} products skipped due to missing Shopify IDs:")
+            for i, product_name in enumerate(products_without_id, 1):
+                logger.warning(f"  {i}. {product_name}")
         
         if not new_product_ids:
             logger.warning("No valid Shopify product IDs found")
             return {
                 "filtered_products_count": len(filtered_products),
                 "valid_shopify_ids": 0,
-                "products_without_id": products_without_id,
+                "products_without_id": len(products_without_id),
                 "products_added": 0,
                 "products_removed": 0,
                 "success": False
@@ -435,7 +437,7 @@ class ShopifyClient:
         result = {
             "filtered_products_count": len(filtered_products),
             "valid_shopify_ids": len(new_product_ids),
-            "products_without_id": products_without_id,
+            "products_without_id": len(products_without_id),
             "current_products_count": len(current_product_ids),
             "products_added": added_count,
             "products_removed": removed_count,
