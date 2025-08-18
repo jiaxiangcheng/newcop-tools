@@ -1,0 +1,95 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+This is a Dynamic Collection Builder that automates Shopify collection management based on Airtable sales data. The system fetches Spanish sales data from the last 90 days, applies filtering criteria, and updates a specific Shopify collection with qualifying products.
+
+## Core Commands
+
+### Environment Setup
+```bash
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Development and Testing
+```bash
+# Test Airtable data fetching and filtering (safe, read-only)
+python test_airtable.py
+
+# Check Shopify IDs for filtered products
+python check_shopify_ids.py
+
+# Run complete collection update (modifies Shopify)
+python main.py
+```
+
+### Virtual Environment Management
+```bash
+# Activate environment
+source venv/bin/activate
+
+# Deactivate environment
+deactivate
+```
+
+## Architecture
+
+The system follows a modular architecture with clear separation of concerns:
+
+### Core Components
+- **DynamicCollectionBuilder** (`main.py`): Orchestrates the entire process
+- **AirtableClient** (`airtable_client.py`): Handles Airtable API interactions with pagination support
+- **ShopifyClient** (`shopify_client.py`): Manages Shopify collection updates using direct product IDs
+- **ProductFilter** (`product_filter.py`): Applies business logic for product qualification
+- **Data Models** (`models.py`): Pydantic models for type safety and validation
+
+### Data Flow
+1. **Fetch**: AirtableClient retrieves up to 500 sales records from Spain view
+2. **Parse**: Raw Airtable records converted to SalesRecord models with field mapping
+3. **Filter**: ProductFilter applies brand, tag, and sales criteria
+4. **Transform**: Qualified products converted to FilteredProduct models with Shopify IDs
+5. **Update**: ShopifyClient adds products directly to collection using Shopify IDs
+
+### Key Business Rules
+- **Brand Keywords**: nike, air jordan, adidas, yeezy, new balance, asics, puma, pop mart
+- **Excluded Tags**: "retail" 
+- **Sales Threshold**: quarterly_sales >= 5.0
+- **Data Source**: Airtable view `viwixRrDpjcAYwHId` from table `tbljkyhWy5D6b65Im`
+- **Target Collection**: Shopify collection ID `650542809429`
+
+## Configuration
+
+The system uses hardcoded credentials and IDs (as specified in requirements):
+- Airtable Token: `pat8Pg6d8OumFPpOO.4b99b41e37fd0c93f5da770a6073c66e21741f574910736a6184347f342faee6`
+- Shopify Admin Token: `810ce8ca2df27f5dd5129dd4f6d2193e`
+- Airtable Base: `appDE0y01TchMqX8N`
+
+## Field Mapping
+
+Critical Airtable to model field mappings:
+- `Product Title` → `product_name`
+- `Vendor` → `brand` 
+- `Tags` → `tags` (comma-separated string to list)
+- `∞ Shopify Id` → `shopify_id` (enables direct product updates)
+- `Ventas trimestre` → `quarterly_sales`
+- `Total sale` → `total_sales`
+
+## Performance Optimizations
+
+- **Pagination**: Airtable client automatically handles API pagination for large datasets
+- **Direct ID Updates**: Uses Shopify product IDs from Airtable instead of name-based searches
+- **Batch Processing**: Filters and validates records in memory before API updates
+- **Error Handling**: Continues processing on individual record failures
+
+## Logging
+
+Dual logging setup:
+- Console output for real-time monitoring
+- File logging to `dynamic_collection.log` for persistence
