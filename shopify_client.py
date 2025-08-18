@@ -421,16 +421,24 @@ class ShopifyClient:
         # Step 2: Add new products in correct order (no position updates needed)
         logger.info(f"Adding {len(new_product_ids)} products to collection in sales order...")
         try:
-            add_success = self.add_products_to_collection_in_order(collection_id, new_product_ids)
-            added_count = len(new_product_ids) if add_success else 0
+            add_result = self.add_products_to_collection_in_order(collection_id, new_product_ids)
+            add_success = add_result.get("success", False)
+            added_count = add_result.get("added_count", 0)
+            failed_count = add_result.get("failed_count", 0)
+            failed_products = add_result.get("failed_products", [])
+            
             if add_success:
                 logger.info(f"Successfully added {added_count} products in correct order")
             else:
-                logger.warning("Some products failed to be added")
+                logger.warning(f"Addition partially failed: {added_count} added, {failed_count} failed")
+                if failed_products:
+                    logger.warning(f"Failed product IDs: {failed_products}")
         except Exception as e:
             logger.error(f"Failed to add products: {e}")
             add_success = False
             added_count = 0
+            failed_count = len(new_product_ids)
+            failed_products = new_product_ids
         
         operation_success = add_success and (not current_product_ids or removed_count == len(current_product_ids))
         
@@ -442,6 +450,8 @@ class ShopifyClient:
             "products_added": added_count,
             "products_removed": removed_count,
             "final_collection_size": added_count,
+            "failed_to_add": failed_count,
+            "failed_product_ids": failed_products if 'failed_products' in locals() else [],
             "top_seller": filtered_products[0].product_name if filtered_products else "N/A",
             "success": operation_success,
             "strategy": "clear_and_rebuild"
@@ -580,20 +590,22 @@ class ShopifyClient:
             logger.error(f"Error getting collections with job_settings: {e}")
             raise
     
-    def add_products_to_collection_in_order(self, collection_id: str, product_ids: List[int]) -> bool:
+    def add_products_to_collection_in_order(self, collection_id: str, product_ids: List[int]) -> Dict[str, Any]:
         """
         Fast batch addition of products to collection in specified order.
         Products are added sequentially to maintain order.
+        Returns detailed results including failed product IDs.
         """
         if not product_ids:
             logger.info("No products to add")
-            return True
+            return {"success": True, "added_count": 0, "failed_count": 0, "failed_products": []}
         
         logger.info(f"Starting batch addition of {len(product_ids)} products to collection {collection_id}")
         
         try:
             batch_size = 50  # Increased batch size for faster processing
             success_count = 0
+            failed_products = []
             
             for i, product_id in enumerate(product_ids):
                 try:
@@ -605,9 +617,11 @@ class ShopifyClient:
                         if (i + 1) % 50 == 0:
                             logger.info(f"➕ Added {i + 1}/{len(product_ids)} products")
                     else:
-                        logger.warning(f"Failed to add product {product_id}")
+                        failed_products.append(product_id)
+                        logger.warning(f"❌ Failed to add product {product_id} to collection")
                 except Exception as e:
-                    logger.warning(f"Failed to add product {product_id}: {e}")
+                    failed_products.append(product_id)
+                    logger.warning(f"❌ Failed to add product {product_id}: {e}")
                     continue
                 
                 # Add small delay every batch_size products to respect rate limits
@@ -615,13 +629,32 @@ class ShopifyClient:
                     time.sleep(0.05)  # Reduced delay since batch size is larger
             
             success_rate = success_count / len(product_ids)
+            failed_count = len(failed_products)
+            
             logger.info(f"Batch addition completed: {success_count}/{len(product_ids)} products added ({success_rate:.1%})")
             
-            return success_rate >= 0.9  # Consider successful if 90%+ added
+            if failed_count > 0:
+                logger.warning(f"⚠️  {failed_count} products failed to be added to collection:")
+                for product_id in failed_products:
+                    logger.warning(f"  - Product ID: {product_id}")
+            
+            return {
+                "success": success_rate >= 0.95,  # Require 95% success rate
+                "added_count": success_count,
+                "failed_count": failed_count,
+                "failed_products": failed_products,
+                "success_rate": success_rate
+            }
             
         except Exception as e:
             logger.error(f"Failed to add products to collection: {e}")
-            return False
+            return {
+                "success": False,
+                "added_count": 0,
+                "failed_count": len(product_ids),
+                "failed_products": product_ids,
+                "error": str(e)
+            }
     
     def _add_single_product_to_collection_with_position(self, collection_id: str, product_id: int, position: int) -> bool:
         """Add a single product to collection with specific position using Collect API"""
