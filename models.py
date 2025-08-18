@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any, Union
+from pydantic import BaseModel, Field, validator
+from typing import List, Optional, Dict, Any
 from datetime import datetime
+from enum import Enum
 
 class AirtableRecord(BaseModel):
     """Base model for Airtable records"""
@@ -98,3 +99,73 @@ class CollectionUpdateRequest(BaseModel):
     """Model for Shopify collection update request"""
     collection_id: str
     product_ids: List[int]
+
+class JobType(str, Enum):
+    """Supported job types"""
+    GET_TOP_RESELL_PRODUCTS = "getTopResellProducts"
+    # Future job types can be added here
+    # SEASONAL_PRODUCTS = "seasonalProducts"
+    # TRENDING_PRODUCTS = "trendingProducts"
+
+class BaseJobSettings(BaseModel):
+    """Base model for job settings from collection metafields"""
+    jobType: JobType
+    description: Optional[str] = Field(alias="Description", default=None)
+    UPDATE_FREQUENCY_HOURS: int = Field(default=24, ge=1, le=168)  # 1 hour to 1 week
+    MAX_AIRTABLE_RECORDS: int = Field(default=500, ge=10, le=5000)
+    
+    class Config:
+        validate_by_name = True
+        use_enum_values = True
+
+class TopResellProductsJobSettings(BaseJobSettings):
+    """Job settings for getTopResellProducts job type"""
+    AIRTABLE_BASE_ID: str
+    AIRTABLE_TABLE_ID: str
+    AIRTABLE_VIEW_ID: str
+    MIN_QUARTERLY_SALES: float = 5.0
+    EXCLUDED_TAGS: Optional[List[str]] = None
+    INCLUDED_TAGS: Optional[List[str]] = None
+    BRAND_KEYWORDS: List[str] = ["nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma", "pop mart"]
+    
+    @validator('jobType')
+    def validate_job_type(cls, v):
+        if v != JobType.GET_TOP_RESELL_PRODUCTS:
+            raise ValueError(f"Invalid job type for TopResellProductsJobSettings: {v}")
+        return v
+    
+    @validator('MIN_QUARTERLY_SALES', pre=True)
+    def parse_min_quarterly_sales(cls, v):
+        """Convert string to float if needed"""
+        if isinstance(v, str):
+            return float(v)
+        return v
+
+class CollectionWithJobSettings(BaseModel):
+    """Model representing a collection with its job settings"""
+    collection_id: str
+    collection_title: str
+    collection_handle: Optional[str] = None
+    job_settings: BaseJobSettings
+    
+    @staticmethod
+    def create_job_settings_from_dict(job_data: Dict[str, Any]) -> BaseJobSettings:
+        """Factory method to create appropriate job settings based on jobType"""
+        job_type = job_data.get("jobType")
+        
+        if job_type == JobType.GET_TOP_RESELL_PRODUCTS:
+            return TopResellProductsJobSettings(**job_data)
+        else:
+            raise ValueError(f"Unknown job type: {job_type}")
+    
+    @classmethod
+    def from_shopify_collection_and_job_data(cls, collection: Dict[str, Any], job_data: Dict[str, Any]) -> "CollectionWithJobSettings":
+        """Create from Shopify collection data and job settings data"""
+        job_settings = cls.create_job_settings_from_dict(job_data)
+        
+        return cls(
+            collection_id=str(collection.get("collection_id") or collection.get("id")),
+            collection_title=collection.get("title", ""),
+            collection_handle=collection.get("handle"),
+            job_settings=job_settings
+        )

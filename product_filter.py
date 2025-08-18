@@ -1,27 +1,32 @@
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from models import SalesRecord, FilteredProduct
 
 logger = logging.getLogger(__name__)
 
 class ProductFilter:
-    """Filter products based on brand, tags, and sales criteria"""
+    """Filter products based on configurable brand, tags, and sales criteria"""
     
-    BRAND_KEYWORDS = [
-        "nike", 
-        "air jordan", 
-        "adidas", 
-        "yeezy", 
-        "new balance", 
-        "asics", 
-        "puma",
-        "pop mart"
-    ]
-    
-    EXCLUDED_TAGS = ["retail"]
-    MIN_QUARTERLY_SALES = 5.0
-    
-    def __init__(self):
+    def __init__(self, 
+                 brand_keywords: List[str] = None,
+                 excluded_tags: Optional[List[str]] = None,
+                 included_tags: Optional[List[str]] = None,
+                 min_quarterly_sales: float = 5.0):
+        """
+        Initialize filter with configurable parameters
+        
+        Args:
+            brand_keywords: List of brand keywords to include
+            excluded_tags: List of tags to exclude (if product has any of these tags, exclude it)
+            included_tags: List of tags to include (if specified, product must have at least one of these tags)
+            min_quarterly_sales: Minimum quarterly sales threshold
+        """
+        self.brand_keywords = brand_keywords or [
+            "nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma", "pop mart"
+        ]
+        self.excluded_tags = excluded_tags  # Can be None for no restriction
+        self.included_tags = included_tags  # Can be None for no restriction
+        self.min_quarterly_sales = min_quarterly_sales
         self.filtered_products: List[FilteredProduct] = []
     
     def filter_products(self, sales_records: List[SalesRecord]) -> List[FilteredProduct]:
@@ -62,11 +67,7 @@ class ProductFilter:
         for i, product in enumerate(filtered_products, 1):
             product.sort_position = i
         
-        logger.info(f"Filtered and sorted {len(filtered_products)} qualifying products by sales performance")
-        if filtered_products:
-            logger.info("Top 3 products by sales:")
-            for i, product in enumerate(filtered_products[:3], 1):
-                logger.info(f"  {i}. {product.product_name} - Q Sales: {product.quarterly_sales}, Total: {product.total_sales}")
+        logger.info(f"✅ Filtered and sorted {len(filtered_products)} qualifying products by sales performance")
         
         self.filtered_products = filtered_products
         return filtered_products
@@ -83,6 +84,10 @@ class ProductFilter:
         if self._has_excluded_tags(record):
             return False
         
+        # Check if product has required included tags (if specified)
+        if not self._has_required_included_tags(record):
+            return False
+        
         # Check sales threshold
         if not self._meets_sales_threshold(record):
             return False
@@ -94,34 +99,54 @@ class ProductFilter:
         product_name = (record.product_name or "").lower()
         brand = (record.brand or "").lower()
         
-        for keyword in self.BRAND_KEYWORDS:
-            if keyword in product_name or keyword in brand:
+        for keyword in self.brand_keywords:
+            if keyword.lower() in product_name or keyword.lower() in brand:
                 return True
         
         return False
     
     def _has_excluded_tags(self, record: SalesRecord) -> bool:
         """Check if product has any excluded tags"""
+        if not record.tags or not self.excluded_tags:
+            return False
+        
+        tags_lower = [tag.lower().strip() for tag in record.tags]
+        
+        for excluded_tag in self.excluded_tags:
+            if excluded_tag.lower() in tags_lower:
+                return True
+        
+        return False
+    
+    def _has_required_included_tags(self, record: SalesRecord) -> bool:
+        """Check if product has required included tags (if specified)"""
+        # If no included tags specified, no restriction
+        if not self.included_tags:
+            return True
+        
+        # If no tags on product but included tags required, exclude
         if not record.tags:
             return False
         
         tags_lower = [tag.lower().strip() for tag in record.tags]
         
-        for excluded_tag in self.EXCLUDED_TAGS:
-            if excluded_tag in tags_lower:
+        # Product must have at least one of the included tags
+        for included_tag in self.included_tags:
+            if included_tag.lower() in tags_lower:
                 return True
         
         return False
     
     def _meets_sales_threshold(self, record: SalesRecord) -> bool:
         """Check if product meets minimum sales threshold"""
-        return record.quarterly_sales >= self.MIN_QUARTERLY_SALES
+        return record.quarterly_sales >= self.min_quarterly_sales
     
     def get_filtering_summary(self) -> Dict[str, Any]:
         """Get summary of filtering criteria and results"""
         return {
-            "brand_keywords": self.BRAND_KEYWORDS,
-            "excluded_tags": self.EXCLUDED_TAGS,
-            "min_quarterly_sales": self.MIN_QUARTERLY_SALES,
+            "brand_keywords": self.brand_keywords,
+            "excluded_tags": self.excluded_tags,
+            "included_tags": self.included_tags,
+            "min_quarterly_sales": self.min_quarterly_sales,
             "total_filtered_products": len(self.filtered_products)
         }

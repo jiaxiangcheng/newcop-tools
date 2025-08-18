@@ -2,6 +2,7 @@ import requests
 import logging
 import re
 import time
+import json
 from typing import List, Dict, Any, Optional
 from models import FilteredProduct, ShopifyProduct
 
@@ -13,7 +14,7 @@ class ShopifyClient:
     def __init__(self, admin_token: str, shop_domain: str):
         self.admin_token = admin_token
         self.shop_domain = shop_domain.replace('.myshopify.com', '')
-        self.base_url = f"https://{self.shop_domain}.myshopify.com/admin/api/2023-10"
+        self.base_url = f"https://{self.shop_domain}.myshopify.com/admin/api/2025-01"
         self.headers = {
             "X-Shopify-Access-Token": admin_token,
             "Content-Type": "application/json"
@@ -99,7 +100,8 @@ class ShopifyClient:
                     )
                     all_products.append(product)
                 
-                logger.debug(f"Fetched {len(products_batch)} products (total: {len(all_products)})")
+                if len(all_products) % 50 == 0 or products_batch:  # Log every 50 products or at end
+                    logger.debug(f"Fetched {len(products_batch)} products (total: {len(all_products)})")
                 
                 # Check if there are more pages
                 # Shopify uses Link header for pagination
@@ -122,130 +124,7 @@ class ShopifyClient:
             logger.error(f"Error fetching collection products: {e}")
             raise
     
-    def add_products_to_collection_with_order(self, collection_id: str, ordered_products: List[FilteredProduct]) -> bool:
-        """
-        Add products to collection with specific sort order using Collect API
-        """
-        if not ordered_products:
-            logger.info("No products to add to collection")
-            return True
-        
-        success_count = 0
-        
-        for product in ordered_products:
-            if not product.shopify_id:
-                logger.warning(f"Product '{product.product_name}' has no Shopify ID, skipping")
-                continue
-                
-            try:
-                if self._add_product_to_collection_with_position(collection_id, product.shopify_id, product.sort_position):
-                    success_count += 1
-                    logger.debug(f"Added product {product.shopify_id} at position {product.sort_position}")
-            except Exception as e:
-                logger.warning(f"Failed to add product {product.shopify_id} to collection: {e}")
-                continue
-        
-        total_valid_products = len([p for p in ordered_products if p.shopify_id])
-        logger.info(f"Successfully added {success_count}/{total_valid_products} products to collection with ordering")
-        return success_count == total_valid_products
     
-    def _add_product_to_collection_with_position(self, collection_id: str, product_id: int, position: int) -> bool:
-        """Add a single product to collection with specific position using Collect API"""
-        url = f"{self.base_url}/collects.json"
-        
-        payload = {
-            "collect": {
-                "product_id": product_id,
-                "collection_id": int(collection_id),
-                "position": position
-            }
-        }
-        
-        try:
-            response = requests.post(url, headers=self.headers, json=payload)
-            response.raise_for_status()
-            logger.debug(f"Successfully added product {product_id} at position {position}")
-            return True
-            
-        except requests.exceptions.RequestException as e:
-            # Handle specific error cases
-            if hasattr(e, 'response') and e.response is not None:
-                status_code = e.response.status_code
-                
-                if status_code == 422:
-                    # Product might already be in collection, try to update position
-                    logger.debug(f"Product {product_id} may already be in collection (422), trying to update position")
-                    return self._update_product_position_in_collection(collection_id, product_id, position)
-                elif status_code == 429:
-                    # Rate limit exceeded, wait and retry
-                    logger.warning(f"Rate limit exceeded, retrying product {product_id} after delay")
-                    time.sleep(1)
-                    return self._add_product_to_collection_with_position(collection_id, product_id, position)
-                else:
-                    # Log detailed error information
-                    try:
-                        error_data = e.response.json()
-                        logger.error(f"Error adding product {product_id} to collection: {status_code} - {error_data}")
-                    except:
-                        logger.error(f"Error adding product {product_id} to collection: {status_code} - {e.response.text}")
-            else:
-                logger.error(f"Error adding product {product_id} to collection with position: {e}")
-            return False
-    
-    def _update_product_position_in_collection(self, collection_id: str, product_id: int, position: int) -> bool:
-        """Update the position of an existing product in collection"""
-        try:
-            # First get the collect ID for this product in the collection
-            collects = self._get_collection_collects(collection_id)
-            collect_id = None
-            
-            for collect in collects:
-                if collect.get("product_id") == product_id:
-                    collect_id = collect.get("id")
-                    break
-            
-            if not collect_id:
-                logger.warning(f"Could not find collect for product {product_id} in collection {collection_id}")
-                # If we can't find the collect, try adding the product instead
-                logger.debug(f"Attempting to add product {product_id} to collection instead")
-                return self._add_single_product_to_collection(collection_id, product_id)
-            
-            # Update the position
-            url = f"{self.base_url}/collects/{collect_id}.json"
-            payload = {
-                "collect": {
-                    "position": position
-                }
-            }
-            
-            response = requests.put(url, headers=self.headers, json=payload)
-            response.raise_for_status()
-            logger.debug(f"Updated position for product {product_id} to {position}")
-            return True
-            
-        except requests.exceptions.RequestException as e:
-            # Handle specific error cases
-            if hasattr(e, 'response') and e.response is not None:
-                status_code = e.response.status_code
-                
-                if status_code == 429:
-                    # Rate limit exceeded, wait and retry
-                    logger.warning(f"Rate limit exceeded updating position for product {product_id}, retrying after delay")
-                    time.sleep(1)
-                    return self._update_product_position_in_collection(collection_id, product_id, position)
-                else:
-                    # Log detailed error information
-                    try:
-                        error_data = e.response.json()
-                        logger.error(f"Error updating position for product {product_id}: {status_code} - {error_data}")
-                    except:
-                        logger.error(f"Error updating position for product {product_id}: {status_code} - {e.response.text}")
-            else:
-                logger.error(f"Error updating position for product {product_id}: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error updating position for product {product_id}: {e}")
-            return False
 
     def add_products_to_collection(self, collection_id: str, product_ids: List[int]) -> bool:
         """
@@ -401,18 +280,95 @@ class ShopifyClient:
             logger.error(f"Error removing collect: {e}")
             raise
     
+    def _remove_single_collect(self, collect_id: str) -> bool:
+        """Remove a single collect by ID"""
+        url = f"{self.base_url}/collects/{collect_id}.json"
+        
+        try:
+            response = requests.delete(url, headers=self.headers)
+            response.raise_for_status()
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            if hasattr(e, 'response') and e.response is not None:
+                status_code = e.response.status_code
+                if status_code == 429:
+                    # Rate limit exceeded, wait and retry once
+                    logger.warning(f"Rate limit exceeded removing collect {collect_id}, retrying after delay")
+                    time.sleep(1)
+                    try:
+                        response = requests.delete(url, headers=self.headers)
+                        response.raise_for_status()
+                        return True
+                    except:
+                        return False
+                else:
+                    logger.warning(f"Error removing collect {collect_id}: {status_code}")
+                    return False
+            else:
+                logger.warning(f"Error removing collect {collect_id}: {e}")
+                return False
+    
+    def remove_all_products_from_collection(self, collection_id: str, product_ids: List[int]) -> bool:
+        """
+        Fast batch removal of all products from collection using parallel processing.
+        """
+        if not product_ids:
+            logger.info("No products to remove")
+            return True
+        
+        logger.info(f"Starting batch removal of {len(product_ids)} products from collection {collection_id}")
+        
+        # Get all collects for this collection
+        try:
+            collects = self._get_collection_collects(collection_id)
+            collect_ids_to_remove = [str(collect.get('id')) for collect in collects if collect.get('product_id') in product_ids]
+            
+            if not collect_ids_to_remove:
+                logger.warning("No matching collects found to remove")
+                return True
+                
+            logger.info(f"Found {len(collect_ids_to_remove)} collects to remove")
+            
+            # Remove collects in batches
+            batch_size = 50  # Increased batch size for faster processing
+            success_count = 0
+            
+            for i in range(0, len(collect_ids_to_remove), batch_size):
+                batch = collect_ids_to_remove[i:i + batch_size]
+                # Progress update every few batches
+                if (i//batch_size + 1) % 3 == 0 or i//batch_size + 1 == 1:
+                    logger.info(f"🗑️  Removing batch {i//batch_size + 1}: {len(batch)} collects")
+                
+                for collect_id in batch:
+                    try:
+                        self._remove_single_collect(collect_id)
+                        success_count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to remove collect {collect_id}: {e}")
+                        continue
+                
+                # Small delay between batches to respect rate limits
+                if i + batch_size < len(collect_ids_to_remove):
+                    time.sleep(0.1)
+            
+            success_rate = success_count / len(collect_ids_to_remove)
+            logger.info(f"Batch removal completed: {success_count}/{len(collect_ids_to_remove)} collects removed ({success_rate:.1%})")
+            
+            return success_rate >= 0.9  # Consider successful if 90%+ removed
+            
+        except Exception as e:
+            logger.error(f"Failed to remove products from collection: {e}")
+            return False
+    
     def update_collection_with_filtered_products(self, collection_id: str, filtered_products: List[FilteredProduct]) -> Dict[str, Any]:
         """
-        Intelligently update collection with filtered products from Airtable using direct Shopify IDs.
-        This method performs atomic replacement to avoid empty collection states:
-        1. Get current products in collection
-        2. Compare with new filtered products
-        3. Remove products that should no longer be in collection
-        4. Add new products that should be in collection
+        Simple collection update strategy: Clear all products then add new ones in correct order.
+        This approach is faster and avoids position update errors.
         """
-        logger.info(f"Starting intelligent collection update {collection_id} with {len(filtered_products)} filtered products")
+        logger.info(f"Starting collection replacement for {collection_id} with {len(filtered_products)} filtered products")
         
-        # Extract Shopify IDs directly from filtered products
+        # Extract valid Shopify IDs
         new_product_ids = []
         products_without_id = 0
         
@@ -421,7 +377,10 @@ class ShopifyClient:
                 new_product_ids.append(product.shopify_id)
             else:
                 products_without_id += 1
-                logger.warning(f"Product '{product.product_name}' has no valid Shopify ID")
+                logger.warning(f"Product '{product.product_name}' has no valid Shopify ID, skipping")
+        
+        if products_without_id > 0:
+            logger.warning(f"⚠️  {products_without_id} products skipped due to missing Shopify IDs")
         
         if not new_product_ids:
             logger.warning("No valid Shopify product IDs found")
@@ -434,7 +393,7 @@ class ShopifyClient:
                 "success": False
             }
         
-        # Get current products in collection
+        # Step 1: Get current products and remove ALL of them
         logger.info("Getting current products in collection...")
         try:
             current_products = self.get_collection_products(collection_id)
@@ -442,88 +401,264 @@ class ShopifyClient:
             logger.info(f"Found {len(current_product_ids)} current products in collection")
         except Exception as e:
             logger.error(f"Failed to get current collection products: {e}")
-            # If we can't get current products, fall back to adding only
-            success = self.add_products_to_collection(collection_id, new_product_ids)
-            return {
-                "filtered_products_count": len(filtered_products),
-                "valid_shopify_ids": len(new_product_ids),
-                "products_without_id": products_without_id,
-                "products_added": len(new_product_ids) if success else 0,
-                "products_removed": 0,
-                "success": success,
-                "fallback_mode": True
-            }
-        
-        # Calculate differences
-        new_product_ids_set = set(new_product_ids)
-        current_product_ids_set = set(current_product_ids)
-        
-        products_to_add = list(new_product_ids_set - current_product_ids_set)
-        products_to_remove = list(current_product_ids_set - new_product_ids_set)
-        products_to_keep = list(new_product_ids_set & current_product_ids_set)
-        
-        logger.info(f"Products to add: {len(products_to_add)}")
-        logger.info(f"Products to remove: {len(products_to_remove)}")
-        logger.info(f"Products to keep: {len(products_to_keep)}")
-        
-        # Perform atomic update with proper ordering
-        # Strategy: Remove products that shouldn't be there, then add/update all products with correct positions
+            current_product_ids = []
         
         removed_count = 0
-        added_count = 0
-        
-        # Step 1: Remove products that should no longer be in collection
-        if products_to_remove:
-            logger.info(f"Removing {len(products_to_remove)} products from collection...")
+        if current_product_ids:
+            logger.info(f"Removing ALL {len(current_product_ids)} products from collection...")
             try:
-                remove_success = self.remove_products_from_collection(collection_id, products_to_remove)
+                remove_success = self.remove_all_products_from_collection(collection_id, current_product_ids)
                 if remove_success:
-                    removed_count = len(products_to_remove)
+                    removed_count = len(current_product_ids)
                     logger.info(f"Successfully removed {removed_count} products")
                 else:
                     logger.warning("Some products failed to be removed")
             except Exception as e:
                 logger.error(f"Failed to remove products: {e}")
         
-        # Step 2: Add new products with correct ordering (includes both new and existing products)
-        # This ensures all products have the correct position based on sales ranking
-        products_to_add_or_update = [p for p in filtered_products if p.shopify_id]
+        # Step 2: Add new products in correct order (no position updates needed)
+        logger.info(f"Adding {len(new_product_ids)} products to collection in sales order...")
+        try:
+            add_success = self.add_products_to_collection_in_order(collection_id, new_product_ids)
+            added_count = len(new_product_ids) if add_success else 0
+            if add_success:
+                logger.info(f"Successfully added {added_count} products in correct order")
+            else:
+                logger.warning("Some products failed to be added")
+        except Exception as e:
+            logger.error(f"Failed to add products: {e}")
+            add_success = False
+            added_count = 0
         
-        if products_to_add_or_update:
-            logger.info(f"Adding/updating {len(products_to_add_or_update)} products with sales-based ordering...")
-            try:
-                add_success = self.add_products_to_collection_with_order(collection_id, products_to_add_or_update)
-                if add_success:
-                    added_count = len([p for p in products_to_add_or_update if p.shopify_id in products_to_add])
-                    updated_count = len([p for p in products_to_add_or_update if p.shopify_id in products_to_keep])
-                    logger.info(f"Successfully added {added_count} new products and updated {updated_count} existing positions")
-                else:
-                    logger.warning("Some products failed to be added or positioned correctly")
-            except Exception as e:
-                logger.error(f"Failed to add/update products with ordering: {e}")
-        
-        # Calculate final success
-        operation_success = True
-        if products_to_remove and removed_count != len(products_to_remove):
-            operation_success = False
-        if products_to_add_or_update and not add_success:
-            operation_success = False
-        
-        actual_added_count = len([p for p in products_to_add_or_update if p.shopify_id in products_to_add]) if products_to_add_or_update else 0
+        operation_success = add_success and (not current_product_ids or removed_count == len(current_product_ids))
         
         result = {
             "filtered_products_count": len(filtered_products),
             "valid_shopify_ids": len(new_product_ids),
             "products_without_id": products_without_id,
             "current_products_count": len(current_product_ids),
-            "products_added": actual_added_count,
+            "products_added": added_count,
             "products_removed": removed_count,
-            "products_kept": len(products_to_keep),
-            "products_repositioned": len([p for p in products_to_add_or_update if p.shopify_id in products_to_keep]) if products_to_add_or_update else 0,
-            "final_collection_size": len(new_product_ids),  # Final size should be all valid new products
+            "final_collection_size": added_count,
             "top_seller": filtered_products[0].product_name if filtered_products else "N/A",
-            "success": operation_success
+            "success": operation_success,
+            "strategy": "clear_and_rebuild"
         }
         
-        logger.info(f"Intelligent collection update completed: {result}")
+        logger.info(f"Collection replacement completed: {result}")
         return result
+    
+    def get_all_collections(self) -> List[Dict[str, Any]]:
+        """Get all collections from Shopify using collection_listings endpoint with pagination support"""
+        url = f"{self.base_url}/collection_listings.json"
+        
+        all_collections = []
+        page_info = None
+        page_size = 250  # Maximum allowed by Shopify API
+        
+        try:
+            while True:
+                # Set up parameters for this request
+                params = {"limit": page_size}
+                if page_info:
+                    params["page_info"] = page_info
+                
+                response = requests.get(url, headers=self.headers, params=params)
+                response.raise_for_status()
+                
+                data = response.json()
+                collections_batch = data.get("collection_listings", [])
+                all_collections.extend(collections_batch)
+                
+                logger.debug(f"Fetched {len(collections_batch)} collections (total: {len(all_collections)})")
+                
+                # Check if there are more pages
+                # Shopify uses Link header for pagination
+                link_header = response.headers.get("Link", "")
+                if "rel=\"next\"" in link_header:
+                    # Extract page_info from Link header
+                    next_link_match = re.search(r'<[^>]*[?&]page_info=([^&>]*)>[^>]*rel="next"', link_header)
+                    if next_link_match:
+                        page_info = next_link_match.group(1)
+                    else:
+                        break
+                else:
+                    break  # No more pages
+            
+            logger.info(f"Found {len(all_collections)} collections total")
+            return all_collections
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching collections: {e}")
+            raise
+    
+    def get_collection_metafields(self, collection_id: str) -> List[Dict[str, Any]]:
+        """Get metafields for a specific collection"""
+        url = f"{self.base_url}/collections/{collection_id}/metafields.json"
+        
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            
+            data = response.json()
+            metafields = data.get("metafields", [])
+            
+            logger.debug(f"Found {len(metafields)} metafields for collection {collection_id}")
+            return metafields
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching metafields for collection {collection_id}: {e}")
+            raise
+    
+    def get_collection_job_settings(self, collection_id: str) -> Optional[Dict[str, Any]]:
+        """Get job_settings from collection's custom.job_settings metafield"""
+        try:
+            metafields = self.get_collection_metafields(collection_id)
+            
+            # Look for custom.job_settings metafield
+            for metafield in metafields:
+                namespace = metafield.get("namespace")
+                key = metafield.get("key")
+                
+                if namespace == "custom" and key == "job_settings":
+                    value = metafield.get("value")
+                    if value:
+                        try:
+                            # Parse JSON value
+                            job_settings = json.loads(value) if isinstance(value, str) else value
+                            logger.info(f"Found job_settings for collection {collection_id}: {job_settings}")
+                            return job_settings
+                        except (json.JSONDecodeError, TypeError) as e:
+                            logger.warning(f"Failed to parse job_settings JSON for collection {collection_id}: {e}")
+                            return None
+            
+            logger.debug(f"No job_settings metafield found for collection {collection_id}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting job_settings for collection {collection_id}: {e}")
+            return None
+    
+    def get_collections_with_job_settings(self) -> List[Dict[str, Any]]:
+        """Get all collections that have job_settings metafield configured"""
+        try:
+            all_collections = self.get_all_collections()
+            collections_with_jobs = []
+            
+            # First, filter collections that start with "Auto -" for efficiency
+            auto_collections = [
+                collection for collection in all_collections 
+                if collection.get("title", "").startswith("Auto -")
+            ]
+            
+            logger.info(f"Found {len(auto_collections)} collections starting with 'Auto -' out of {len(all_collections)} total collections")
+            
+            # Check metafields only for "Auto -" collections (never check all collections)
+            collections_to_check = auto_collections
+            
+            for collection in collections_to_check:
+                # Handle both collection_listings and regular collections API response formats
+                collection_id = str(collection.get("collection_id") or collection.get("id"))
+                collection_title = collection.get("title", "Unknown")
+                
+                logger.debug(f"Checking job_settings for collection: {collection_title}")
+                job_settings = self.get_collection_job_settings(collection_id)
+                
+                if job_settings:
+                    collections_with_jobs.append({
+                        "collection": collection,
+                        "job_settings": job_settings
+                    })
+                    logger.info(f"✅ Found job_settings for collection: {collection_title}")
+            
+            logger.info(f"Found {len(collections_with_jobs)} collections with job_settings")
+            return collections_with_jobs
+            
+        except Exception as e:
+            logger.error(f"Error getting collections with job_settings: {e}")
+            raise
+    
+    def add_products_to_collection_in_order(self, collection_id: str, product_ids: List[int]) -> bool:
+        """
+        Fast batch addition of products to collection in specified order.
+        Products are added sequentially to maintain order.
+        """
+        if not product_ids:
+            logger.info("No products to add")
+            return True
+        
+        logger.info(f"Starting batch addition of {len(product_ids)} products to collection {collection_id}")
+        
+        try:
+            batch_size = 50  # Increased batch size for faster processing
+            success_count = 0
+            
+            for i, product_id in enumerate(product_ids):
+                try:
+                    # Use position i+1 (1-based) to maintain order
+                    success = self._add_single_product_to_collection_with_position(collection_id, product_id, i + 1)
+                    if success:
+                        success_count += 1
+                        # Progress update every 50 products
+                        if (i + 1) % 50 == 0:
+                            logger.info(f"➕ Added {i + 1}/{len(product_ids)} products")
+                    else:
+                        logger.warning(f"Failed to add product {product_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to add product {product_id}: {e}")
+                    continue
+                
+                # Add small delay every batch_size products to respect rate limits
+                if (i + 1) % batch_size == 0 and i + 1 < len(product_ids):
+                    time.sleep(0.05)  # Reduced delay since batch size is larger
+            
+            success_rate = success_count / len(product_ids)
+            logger.info(f"Batch addition completed: {success_count}/{len(product_ids)} products added ({success_rate:.1%})")
+            
+            return success_rate >= 0.9  # Consider successful if 90%+ added
+            
+        except Exception as e:
+            logger.error(f"Failed to add products to collection: {e}")
+            return False
+    
+    def _add_single_product_to_collection_with_position(self, collection_id: str, product_id: int, position: int) -> bool:
+        """Add a single product to collection with specific position using Collect API"""
+        url = f"{self.base_url}/collects.json"
+        
+        payload = {
+            "collect": {
+                "product_id": product_id,
+                "collection_id": int(collection_id),
+                "position": position
+            }
+        }
+        
+        try:
+            response = requests.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            if hasattr(e, 'response') and e.response is not None:
+                status_code = e.response.status_code
+                
+                if status_code == 422:
+                    # Product might already be in collection, this is ok
+                    logger.debug(f"Product {product_id} may already be in collection (422)")
+                    return True
+                elif status_code == 429:
+                    # Rate limit exceeded, wait and retry once
+                    logger.warning(f"Rate limit exceeded, retrying product {product_id} after delay")
+                    time.sleep(1)
+                    try:
+                        response = requests.post(url, headers=self.headers, json=payload)
+                        response.raise_for_status()
+                        return True
+                    except:
+                        return False
+                else:
+                    logger.warning(f"Error adding product {product_id}: {status_code}")
+                    return False
+            else:
+                logger.warning(f"Error adding product {product_id}: {e}")
+                return False
