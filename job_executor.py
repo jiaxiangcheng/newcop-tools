@@ -76,9 +76,9 @@ class TopResellProductsJobExecutor(JobExecutor):
                 logger.warning("No sales records found")
                 return {"success": False, "message": "No sales records found", "collection_id": collection_id}
             
-            # Filter products based on criteria
+            # Filter products based on criteria with newcop exception logic
             logger.info("Filtering products based on brand, tags, and sales criteria...")
-            filtered_products = product_filter.filter_products(sales_records)
+            filtered_products = product_filter.filter_products_with_newcop_exception(sales_records)
             
             if not filtered_products:
                 logger.warning("No products passed filtering criteria")

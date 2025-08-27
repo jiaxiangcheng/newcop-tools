@@ -29,6 +29,87 @@ class ProductFilter:
         self.min_quarterly_sales = min_quarterly_sales
         self.filtered_products: List[FilteredProduct] = []
     
+    def filter_products_with_newcop_exception(self, sales_records: List[SalesRecord]) -> List[FilteredProduct]:
+        """
+        Filter products with newcop tag exception logic:
+        1. First get all products with included_tags (e.g., 'newcop') - no sales threshold required
+        2. Then get products meeting regular criteria (sales threshold + other filters)
+        3. Merge and deduplicate, then sort by sales performance
+        """
+        all_products = []
+        newcop_products = []
+        regular_products = []
+        
+        logger.info(f"Starting to filter {len(sales_records)} sales records with newcop exception logic")
+        
+        # Step 1: Get all products with included_tags (newcop exception - no sales requirement)
+        if self.included_tags:
+            logger.info(f"Step 1: Finding products with included tags {self.included_tags} (no sales threshold)")
+            for record in sales_records:
+                if self._has_required_included_tags(record) and not self._has_excluded_tags(record):
+                    try:
+                        filtered_product = FilteredProduct(
+                            record_id=record.record_id,
+                            product_name=record.product_name or "",
+                            brand=record.brand or "",
+                            quarterly_sales=record.quarterly_sales,
+                            total_sales=record.total_sales,
+                            tags=record.tags or [],
+                            shopify_id=record.shopify_id
+                        )
+                        newcop_products.append(filtered_product)
+                        logger.debug(f"Added newcop product: {record.product_name} (sales: {record.quarterly_sales})")
+                    except Exception as e:
+                        logger.warning(f"Error creating newcop product for record {record.record_id}: {e}")
+            
+            logger.info(f"Found {len(newcop_products)} products with included tags")
+        
+        # Step 2: Get products meeting regular criteria (sales + brand + no excluded tags, but ignore included_tags requirement)
+        logger.info(f"Step 2: Finding products meeting sales threshold {self.min_quarterly_sales}")
+        for record in sales_records:
+            if (self._has_required_brand_keyword(record) and 
+                not self._has_excluded_tags(record) and 
+                self._meets_sales_threshold(record)):
+                try:
+                    filtered_product = FilteredProduct(
+                        record_id=record.record_id,
+                        product_name=record.product_name or "",
+                        brand=record.brand or "",
+                        quarterly_sales=record.quarterly_sales,
+                        total_sales=record.total_sales,
+                        tags=record.tags or [],
+                        shopify_id=record.shopify_id
+                    )
+                    regular_products.append(filtered_product)
+                    logger.debug(f"Added regular product: {record.product_name} (sales: {record.quarterly_sales})")
+                except Exception as e:
+                    logger.warning(f"Error creating regular product for record {record.record_id}: {e}")
+        
+        logger.info(f"Found {len(regular_products)} products meeting regular criteria")
+        
+        # Step 3: Merge and deduplicate by record_id
+        seen_record_ids = set()
+        for product in newcop_products + regular_products:
+            if product.record_id not in seen_record_ids:
+                all_products.append(product)
+                seen_record_ids.add(product.record_id)
+        
+        logger.info(f"After deduplication: {len(all_products)} unique products")
+        
+        # Step 4: Sort by sales performance
+        all_products.sort(
+            key=lambda p: (-p.quarterly_sales, -p.total_sales, p.product_name.lower())
+        )
+        
+        # Assign sort positions (1-based for Shopify)
+        for i, product in enumerate(all_products, 1):
+            product.sort_position = i
+        
+        logger.info(f"✅ Filtered and sorted {len(all_products)} qualifying products by sales performance")
+        
+        self.filtered_products = all_products
+        return all_products
+
     def filter_products(self, sales_records: List[SalesRecord]) -> List[FilteredProduct]:
         """
         Filter products based on brand keywords, tags, and sales criteria
