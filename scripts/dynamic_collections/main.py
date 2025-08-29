@@ -28,25 +28,15 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from shared.shopify_client import ShopifyClient
+from shared.logger import setup_logger
 from scripts.dynamic_collections.models import CollectionWithJobSettings
 from scripts.dynamic_collections.job_executor import JobExecutorFactory
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging to use logs directory
-log_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'logs', 'dynamic_collection.log')
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file_path)
-    ]
-)
-
-logger = logging.getLogger(__name__)
+# Set up logging
+logger = setup_logger('dynamic_collections', 'dynamic_collection.log')
 
 class DynamicCollectionManager:
     """Main class to orchestrate dynamic collection jobs across multiple collections"""

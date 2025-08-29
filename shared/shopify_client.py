@@ -853,6 +853,31 @@ class ShopifyClient:
             logger.error(f"Error fetching metafields for variant {variant_id}: {e}")
             return []
     
+    def get_product_variant_by_id(self, product_id: int, variant_id: int) -> Optional[Dict[str, Any]]:
+        """Get detailed information for a specific variant"""
+        url = f"{self.base_url}/products/{product_id}/variants/{variant_id}.json"
+        
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            
+            data = response.json()
+            variant = data.get("variant", {})
+            
+            logger.debug(f"Retrieved variant details for variant {variant_id}")
+            return variant
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                logger.debug(f"Variant {variant_id} not found in product {product_id}")
+                return None
+            else:
+                logger.error(f"HTTP error fetching variant {variant_id}: {e}")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching variant {variant_id} details: {e}")
+            return None
+    
     def batch_update_variant_metafields(self, updates: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Update multiple variant metafields with controlled concurrency

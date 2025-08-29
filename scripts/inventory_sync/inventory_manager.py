@@ -155,11 +155,17 @@ class InventoryManager:
                 sync_result.execution_time_seconds = time.time() - start_time
                 return sync_result
             
-            # Log some example changes
-            for i, change in enumerate(variants_to_update[:5]):  # Show first 5 changes
-                logger.info(f"  📈 {change.product_title} (variant {change.variant_id}): {change.change_description}")
-            if len(variants_to_update) > 5:
-                logger.info(f"  ... and {len(variants_to_update) - 5} more changes")
+            # Log all inventory changes with detailed information
+            logger.info("📋 Detailed inventory changes:")
+            for i, change in enumerate(variants_to_update, 1):
+                # Get additional variant details for better logging
+                variant_info = self._get_variant_display_info_from_products(change, current_products)
+                logger.info(f"  [{i:3d}] 📦 {change.product_title}")
+                logger.info(f"       🏷️  Variant: {variant_info}")
+                logger.info(f"       📊 Change: {change.change_description}")
+                logger.info(f"       🆔 IDs: Product={change.product_id}, Variant={change.variant_id}")
+                if i < len(variants_to_update):  # Add separator except for last item
+                    logger.info("       " + "-" * 50)
             
             if dry_run:
                 logger.info("🧪 DRY RUN: Would update metafields for variants with changes")
@@ -194,6 +200,24 @@ class InventoryManager:
             # Final result
             sync_result.success = successful_updates > 0 or len(variants_to_update) == 0
             sync_result.execution_time_seconds = time.time() - start_time
+            
+            # Log detailed summary of successful updates
+            if sync_result.variants_updated > 0:
+                logger.info("📋 Successfully updated variants summary:")
+                successful_updates = [u for u in updated_variants if u]
+                for i, update in enumerate(successful_updates, 1):
+                    # Find the corresponding change for product title
+                    matching_change = None
+                    for change in variants_to_update:
+                        if change.variant_id == update.variant_id:
+                            matching_change = change
+                            break
+                    
+                    product_title = matching_change.product_title if matching_change else "Unknown Product"
+                    logger.info(f"  [{i:2d}] 📦 {product_title}")
+                    logger.info(f"       🔸 Variant ID: {update.variant_id}")
+                    logger.info(f"       📊 Inventory: {update.old_quantity} → {update.new_quantity}")
+                    logger.info(f"       🏷️  Metafield: {update.metafield_namespace}.{update.metafield_key}")
             
             # Log summary
             logger.info("📋 Inventory sync completed!")
@@ -281,9 +305,12 @@ class InventoryManager:
                     updates.append(variant_update)
                     
                     if variant_update:
-                        logger.debug(f"    ✅ Updated variant {variant_change.variant_id}: {variant_change.change_description}")
+                        logger.info(f"    ✅ Updated variant {variant_change.variant_id}: {variant_change.change_description}")
+                        logger.debug(f"         Product: {variant_change.product_title}")
+                        logger.debug(f"         Metafield: {self.namespace}.{self.metafield_key} = {variant_change.new_quantity}")
                     else:
-                        logger.warning(f"    ❌ Failed to update variant {variant_change.variant_id}")
+                        logger.warning(f"    ❌ Failed to update variant {variant_change.variant_id}: {error_message or 'Unknown error'}")
+                        logger.warning(f"         Product: {variant_change.product_title}")
                         # Add to retry queue if not already a retry
                         if not is_retry:
                             self.retry_queue.add_failed_update(variant_change, error_message or "Unknown error")
@@ -366,3 +393,59 @@ class InventoryManager:
         except Exception as e:
             logger.error(f"Error clearing cache: {e}")
             return False
+    
+    def _get_variant_display_info_from_products(self, change: InventoryChangeDetection, current_products: List[Dict[str, Any]]) -> str:
+        """Get formatted display information for a variant from already loaded product data"""
+        try:
+            # Find the product in current_products
+            product = None
+            for prod in current_products:
+                if str(prod.get('id')) == str(change.product_id):
+                    product = prod
+                    break
+            
+            if not product:
+                return f"ID: {change.variant_id} (product not found)"
+            
+            # Find the variant in the product's variants
+            variant = None
+            for var in product.get('variants', []):
+                if str(var.get('id')) == str(change.variant_id):
+                    variant = var
+                    break
+            
+            if not variant:
+                return f"ID: {change.variant_id} (variant not found in product)"
+            
+            # Build variant description
+            parts = []
+            
+            # Add variant title if it exists and is not "Default Title"
+            if variant.get('title') and variant['title'] != 'Default Title':
+                parts.append(f"Title: {variant['title']}")
+            
+            # Add variant options (size, color, etc.)
+            if variant.get('option1'):
+                parts.append(f"Option1: {variant['option1']}")
+            if variant.get('option2'):
+                parts.append(f"Option2: {variant['option2']}")
+            if variant.get('option3'):
+                parts.append(f"Option3: {variant['option3']}")
+            
+            # Add SKU if available
+            if variant.get('sku'):
+                parts.append(f"SKU: {variant['sku']}")
+            
+            # Add price
+            if variant.get('price'):
+                parts.append(f"Price: ${variant['price']}")
+            
+            # Add current inventory quantity
+            if 'inventory_quantity' in variant:
+                parts.append(f"Current Qty: {variant['inventory_quantity']}")
+            
+            return " | ".join(parts) if parts else f"ID: {change.variant_id}"
+                
+        except Exception as e:
+            logger.debug(f"Could not get variant display info for {change.variant_id}: {e}")
+            return f"ID: {change.variant_id} (error getting details)"

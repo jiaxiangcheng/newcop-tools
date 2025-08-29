@@ -35,18 +35,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from main import DynamicCollectionBuilder
+from shared.logger import setup_logger
 
-# Configure logging for scheduler
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - SCHEDULER - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('scheduler.log')
-    ]
-)
-
-logger = logging.getLogger(__name__)
+# Set up logging
+logger = setup_logger('scheduler', 'scheduler.log', format_string='%(asctime)s - SCHEDULER - %(levelname)s - %(message)s')
 
 class CollectionScheduler:
     """Scheduler for dynamic collection updates"""

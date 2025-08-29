@@ -9,6 +9,10 @@ Each script functionality is organized in its own module for better maintainabil
 import os
 import sys
 from typing import Dict, Callable
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 def show_banner():
     """Display the application banner"""

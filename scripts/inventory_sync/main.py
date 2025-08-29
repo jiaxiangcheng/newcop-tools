@@ -33,25 +33,15 @@ import atexit
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from shared.shopify_client import ShopifyClient
+from shared.logger import setup_logger
 from scripts.inventory_sync.inventory_manager import InventoryManager
 from scripts.inventory_sync.storage import InventoryStorage
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging to use logs directory
-log_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'logs', 'inventory_sync.log')
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file_path)
-    ]
-)
-
-logger = logging.getLogger(__name__)
+# Set up logging
+logger = setup_logger('inventory_sync', 'inventory_sync.log')
 
 class InventorySyncOrchestrator:
     """Main orchestrator for inventory synchronization with scheduling capabilities"""
