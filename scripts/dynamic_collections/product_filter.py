@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Any, Optional
-from models import SalesRecord, FilteredProduct
+from scripts.dynamic_collections.models import SalesRecord, FilteredProduct
 
 logger = logging.getLogger(__name__)
 

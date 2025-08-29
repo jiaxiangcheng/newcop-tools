@@ -1,19 +1,24 @@
 from abc import ABC, abstractmethod
 import logging
 from typing import Dict, Any, List
-from models import TopResellProductsJobSettings, SalesRecord, CollectionWithJobSettings
-from airtable_client import AirtableClient
-from shopify_client import ShopifyClient
-from product_filter import ProductFilter
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from scripts.dynamic_collections.models import TopResellProductsJobSettings, SalesRecord, CollectionWithJobSettings
+from shared.airtable_client import AirtableClient
+from shared.shopify_client import ShopifyClient
+from scripts.dynamic_collections.product_filter import ProductFilter
 
 logger = logging.getLogger(__name__)
 
 class JobExecutor(ABC):
     """Abstract base class for job executors"""
     
-    def __init__(self, airtable_token: str, shopify_client: ShopifyClient):
+    def __init__(self, airtable_token: str, shopify_client: ShopifyClient, dry_run: bool = False):
         self.airtable_token = airtable_token
         self.shopify_client = shopify_client
+        self.dry_run = dry_run
     
     @abstractmethod
     def execute(self, collection_with_settings: CollectionWithJobSettings) -> Dict[str, Any]:
@@ -84,12 +89,24 @@ class TopResellProductsJobExecutor(JobExecutor):
                 logger.warning("No products passed filtering criteria")
                 return {"success": False, "message": "No products passed filtering criteria", "collection_id": collection_id}
             
-            # Update Shopify collection
-            logger.info(f"Updating Shopify collection {collection_id}...")
-            update_result = self.shopify_client.update_collection_with_filtered_products(
-                collection_id,
-                filtered_products
-            )
+            # Update Shopify collection or simulate in dry run mode
+            if self.dry_run:
+                logger.info(f"🧪 DRY RUN: Would update Shopify collection {collection_id} with {len(filtered_products)} products")
+                update_result = {
+                    "success": True,
+                    "message": f"DRY RUN: Would update collection with {len(filtered_products)} products",
+                    "dry_run": True,
+                    "added_count": len(filtered_products),
+                    "failed_count": 0,
+                    "products_preview": [f"{p.product_name} (ID: {p.shopify_id})" for p in filtered_products[:5]],
+                    "total_products": len(filtered_products)
+                }
+            else:
+                logger.info(f"Updating Shopify collection {collection_id}...")
+                update_result = self.shopify_client.update_collection_with_filtered_products(
+                    collection_id,
+                    filtered_products
+                )
             
             # Prepare final result
             result = {
@@ -125,16 +142,17 @@ class TopResellProductsJobExecutor(JobExecutor):
 class JobExecutorFactory:
     """Factory for creating job executors"""
     
-    def __init__(self, airtable_token: str, shopify_client: ShopifyClient):
+    def __init__(self, airtable_token: str, shopify_client: ShopifyClient, dry_run: bool = False):
         self.airtable_token = airtable_token
         self.shopify_client = shopify_client
+        self.dry_run = dry_run
         self._executors = {}
         self._register_executors()
     
     def _register_executors(self):
         """Register available job executors"""
         executors = [
-            TopResellProductsJobExecutor(self.airtable_token, self.shopify_client),
+            TopResellProductsJobExecutor(self.airtable_token, self.shopify_client, self.dry_run),
             # Future executors can be added here
         ]
         

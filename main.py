@@ -1,278 +1,229 @@
 #!/usr/bin/env python3
 """
-Dynamic Collection Builder Script
+Newcop Backend Jobs CLI Launcher
 
-This script fetches sales data from Airtable for Spain (last 90 days),
-filters products based on brand criteria and sales thresholds,
-and updates a Shopify collection with qualifying products.
-
-Required environment variables:
-- AIRTABLE_TOKEN
-- SHOPIFY_ADMIN_TOKEN
-- SHOPIFY_SHOP_DOMAIN (optional, defaults to extracting from collection)
+A centralized CLI tool to manage various Shopify and Airtable automation scripts.
+Each script functionality is organized in its own module for better maintainability.
 """
 
 import os
 import sys
-import logging
-import concurrent.futures
-from typing import Dict, Any, List
-from dotenv import load_dotenv
+from typing import Dict, Callable
 
-from shopify_client import ShopifyClient
-from models import CollectionWithJobSettings
-from job_executor import JobExecutorFactory
+def show_banner():
+    """Display the application banner"""
+    print("=" * 60)
+    print("🏪 Newcop Backend Jobs - CLI Launcher")
+    print("=" * 60)
+    print("Manage Shopify and Airtable automation scripts")
+    print("=" * 60)
 
-# Load environment variables
-load_dotenv()
+def show_menu():
+    inventory_sync_interval_hours = os.getenv("INVENTORY_SYNC_INTERVAL_HOURS", "6")
+    """Display the main menu options"""
+    print("\n📋 Available Scripts:")
+    print("1. 🔄 Dynamic Collections - Auto-update Shopify collections based on Airtable sales data")
+    print(f"2. 📦 Inventory Sync - Sync inventory quantities to variant metafields every {inventory_sync_interval_hours} hours")
+    print("3. 🚀 More scripts coming soon...")
+    print("\n0. 🚪 Exit")
+    print("-" * 60)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('dynamic_collection.log')
-    ]
-)
-
-logger = logging.getLogger(__name__)
-
-class DynamicCollectionManager:
-    """Main class to orchestrate dynamic collection jobs across multiple collections"""
-    
-    def __init__(self):
-        # Configuration from environment variables
-        self.airtable_token = os.getenv("AIRTABLE_TOKEN")
-        self.shopify_admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
-        self.shopify_shop_domain = os.getenv("SHOPIFY_SHOP_DOMAIN")
+def run_dynamic_collections() -> bool:
+    """Run the dynamic collections script with user mode selection"""
+    try:
+        print("\n🔄 Starting Dynamic Collections Script...")
+        print("=" * 60)
         
-        # Initialize clients
-        self.shopify_client = ShopifyClient(self.shopify_admin_token, self.shopify_shop_domain)
-        self.job_executor_factory = JobExecutorFactory(self.airtable_token, self.shopify_client)
-    
-    def validate_environment(self) -> bool:
-        """Validate that all required configuration is present"""
-        required_configs = [
-            ("AIRTABLE_TOKEN", self.airtable_token),
-            ("SHOPIFY_ADMIN_TOKEN", self.shopify_admin_token),
-            ("SHOPIFY_SHOP_DOMAIN", self.shopify_shop_domain)
-        ]
+        # Ask user for execution mode
+        print("Select execution mode:")
+        print("1. 🔧 Manual Sync (run once)")
+        print("2. 🔄 Scheduled Mode (run every 15 days)")
+        print("3. 🧪 Dry Run (analyze changes only)")
+        print("0. ↩️  Return to main menu")
         
-        missing_configs = []
-        for name, value in required_configs:
-            if not value or value in ["your_token_here", "your_shop", ""]:
-                missing_configs.append(name)
-        
-        if missing_configs:
-            logger.error(f"Missing required environment variables: {', '.join(missing_configs)}")
-            logger.error("Please create a .env file with all required variables.")
-            logger.error("See .env.example for the required format.")
-            return False
-        
-        logger.info("Environment validation passed")
-        logger.info(f"Supported job types: {self.job_executor_factory.get_supported_job_types()}")
-        return True
-    
-    def discover_collections_with_jobs(self) -> List[CollectionWithJobSettings]:
-        """Discover collections that have job_settings metafields configured"""
-        logger.info("Discovering collections with job settings...")
-        
-        try:
-            collections_with_jobs_data = self.shopify_client.get_collections_with_job_settings()
-            collections_with_jobs = []
-            
-            for collection_data in collections_with_jobs_data:
-                try:
-                    collection_with_settings = CollectionWithJobSettings.from_shopify_collection_and_job_data(
-                        collection_data["collection"],
-                        collection_data["job_settings"]
-                    )
-                    collections_with_jobs.append(collection_with_settings)
-                    logger.info(f"Found collection '{collection_with_settings.collection_title}' with job type '{collection_with_settings.job_settings.jobType}'")
-                except Exception as e:
-                    collection_title = collection_data["collection"].get("title", "Unknown")
-                    logger.warning(f"Failed to parse job settings for collection '{collection_title}': {e}")
-                    continue
-            
-            logger.info(f"Discovered {len(collections_with_jobs)} collections with valid job settings")
-            return collections_with_jobs
-            
-        except Exception as e:
-            logger.error(f"Failed to discover collections with jobs: {e}")
-            raise
-    
-    def execute_collection_job(self, collection_with_settings: CollectionWithJobSettings) -> Dict[str, Any]:
-        """Execute a job for a specific collection"""
-        job_type = collection_with_settings.job_settings.jobType
-        collection_title = collection_with_settings.collection_title
-        
-        logger.info(f"Executing job '{job_type}' for collection '{collection_title}'...")
-        
-        try:
-            # Get appropriate executor for the job type
-            executor = self.job_executor_factory.get_executor(job_type)
-            
-            # Execute the job
-            result = executor.execute(collection_with_settings)
-            
-            if result.get("success"):
-                logger.info(f"Job '{job_type}' completed successfully for collection '{collection_title}'")
-            else:
-                logger.error(f"Job '{job_type}' failed for collection '{collection_title}': {result.get('error', result.get('message', 'Unknown error'))}")
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Failed to execute job '{job_type}' for collection '{collection_title}': {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "job_type": job_type,
-                "collection_id": collection_with_settings.collection_id,
-                "collection_title": collection_title
-            }
-    
-    def execute_all_collection_jobs(self, collections_with_jobs: List[CollectionWithJobSettings]) -> List[Dict[str, Any]]:
-        """Execute jobs for all collections using parallel processing"""
-        logger.info(f"Executing jobs for {len(collections_with_jobs)} collections using parallel processing...")
-        
-        results = []
-        successful_jobs = 0
-        
-        # Use ThreadPoolExecutor to process collections in parallel
-        max_workers = min(len(collections_with_jobs), 3)  # Limit to 3 concurrent threads to avoid rate limits
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all jobs
-            future_to_collection = {
-                executor.submit(self.execute_collection_job, collection): collection 
-                for collection in collections_with_jobs
-            }
-            
-            # Collect results as they complete
-            for future in concurrent.futures.as_completed(future_to_collection):
-                collection = future_to_collection[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                    
-                    if result.get("success"):
-                        successful_jobs += 1
-                        logger.info(f"✅ Collection '{collection.collection_title}' completed successfully")
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+                
+                if mode_choice == "0":
+                    return True  # Return to main menu
+                elif mode_choice == "1":
+                    # Manual sync
+                    from scripts.dynamic_collections.main import run_dynamic_collections
+                    success = run_dynamic_collections(mode="manual", dry_run=False)
+                    break
+                elif mode_choice == "2":
+                    # Scheduled mode
+                    print("\n⚠️  Scheduled mode will run continuously every 15 days. Press Ctrl+C to stop.")
+                    confirm = input("Continue? (y/N): ").strip().lower()
+                    if confirm in ['y', 'yes']:
+                        from scripts.dynamic_collections.main import run_dynamic_collections
+                        success = run_dynamic_collections(mode="scheduled", dry_run=False)
                     else:
-                        logger.error(f"❌ Collection '{collection.collection_title}' failed: {result.get('error', 'Unknown error')}")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Collection '{collection.collection_title}' encountered exception: {e}")
-                    results.append({
-                        "success": False,
-                        "error": str(e),
-                        "collection_id": collection.collection_id,
-                        "collection_title": collection.collection_title
-                    })
+                        success = True  # User cancelled
+                    break
+                elif mode_choice == "3":
+                    # Dry run
+                    from scripts.dynamic_collections.main import run_dynamic_collections
+                    success = run_dynamic_collections(mode="manual", dry_run=True)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                    continue
+                    
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
         
-        logger.info(f"Completed {successful_jobs}/{len(collections_with_jobs)} jobs successfully")
-        return results
-    
-    def print_job_execution_summary(self, results: List[Dict[str, Any]]) -> None:
-        """Print a summary of job execution results"""
-        successful_jobs = [r for r in results if r.get("success")]
-        failed_jobs = [r for r in results if not r.get("success")]
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Dynamic Collections Script completed successfully!")
+        else:
+            print("❌ Dynamic Collections Script completed with errors.")
         
-        print(f"\n📊 Job Execution Summary:")
-        print(f"✅ Successful: {len(successful_jobs)}")
-        print(f"❌ Failed: {len(failed_jobs)}")
-        print(f"📈 Total: {len(results)}")
+        return success
         
-        if successful_jobs:
-            print("\n✅ Successful Jobs:")
-            for result in successful_jobs:
-                job_type = result.get("job_type", "Unknown")
-                collection_title = result.get("collection_title", "Unknown")
-                products_count = result.get("filtered_products_count", 0)
-                print(f"  - {collection_title}: {job_type} ({products_count} products)")
+    except ImportError as e:
+        print(f"❌ Error importing dynamic collections script: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install APScheduler")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running dynamic collections: {e}")
+        return False
+
+def run_inventory_sync() -> bool:
+    """Run the inventory sync script with user mode selection"""
+    try:
+        print("\n📦 Starting Inventory Sync Script...")
+        print("=" * 60)
         
-        if failed_jobs:
-            print("\n❌ Failed Jobs:")
-            for result in failed_jobs:
-                collection_title = result.get("collection_title", "Unknown")
-                error = result.get("error", result.get("message", "Unknown error"))
-                print(f"  - {collection_title}: {error}")
-    
-    def run(self) -> Dict[str, Any]:
-        """Run the complete dynamic collection management process"""
-        logger.info("Starting dynamic collection management process...")
+        # Ask user for execution mode
+        print("Select execution mode:")
+        print("1. 🔧 Manual Sync (run once)")
+        print("2. 🔄 Scheduled Mode (run every 2 hours)")
+        print("3. 🧪 Dry Run (analyze changes only)")
+        print("0. ↩️  Return to main menu")
         
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+                
+                if mode_choice == "0":
+                    return True  # Return to main menu
+                elif mode_choice == "1":
+                    # Manual sync
+                    from scripts.inventory_sync.main import run_inventory_sync
+                    success = run_inventory_sync(mode="manual", dry_run=False)
+                    break
+                elif mode_choice == "2":
+                    # Scheduled mode
+                    print("\n⚠️  Scheduled mode will run continuously. Press Ctrl+C to stop.")
+                    confirm = input("Continue? (y/N): ").strip().lower()
+                    if confirm in ['y', 'yes']:
+                        from scripts.inventory_sync.main import run_inventory_sync
+                        success = run_inventory_sync(mode="scheduled", dry_run=False)
+                    else:
+                        success = True  # User cancelled
+                    break
+                elif mode_choice == "3":
+                    # Dry run
+                    from scripts.inventory_sync.main import run_inventory_sync
+                    success = run_inventory_sync(mode="manual", dry_run=True)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                    continue
+                    
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+        
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Inventory Sync Script completed successfully!")
+        else:
+            print("❌ Inventory Sync Script completed with errors.")
+        
+        return success
+        
+    except ImportError as e:
+        print(f"❌ Error importing inventory sync script: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install APScheduler")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running inventory sync: {e}")
+        return False
+
+def get_user_choice() -> str:
+    """Get user input with validation"""
+    while True:
         try:
-            # Validate environment
-            if not self.validate_environment():
-                raise ValueError("Environment validation failed")
-            
-            # Discover collections with job settings
-            collections_with_jobs = self.discover_collections_with_jobs()
-            
-            if not collections_with_jobs:
-                logger.warning("No collections found with job settings configured")
-                return {
-                    "success": True,
-                    "message": "No collections found with job settings configured",
-                    "collections_processed": 0,
-                    "job_results": []
-                }
-            
-            # Execute jobs for all collections
-            job_results = self.execute_all_collection_jobs(collections_with_jobs)
-            
-            # Calculate overall success
-            successful_jobs = sum(1 for result in job_results if result.get("success"))
-            overall_success = successful_jobs > 0
-            
-            # Prepare final result
-            result = {
-                "success": overall_success,
-                "collections_discovered": len(collections_with_jobs),
-                "collections_processed": len(job_results),
-                "successful_jobs": successful_jobs,
-                "failed_jobs": len(job_results) - successful_jobs,
-                "job_results": job_results
-            }
-            
-            logger.info("Dynamic collection management completed!")
-            logger.info(f"Final summary: {successful_jobs}/{len(job_results)} jobs successful")
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Dynamic collection management failed: {e}")
-            return {"success": False, "error": str(e)}
+            choice = input("\n🔸 Enter your choice: ").strip()
+            return choice
+        except KeyboardInterrupt:
+            print("\n\n👋 Goodbye!")
+            sys.exit(0)
+        except EOFError:
+            print("\n\n👋 Goodbye!")
+            sys.exit(0)
+
+def wait_for_enter():
+    """Wait for user to press Enter to continue"""
+    try:
+        input("\n📥 Press Enter to return to main menu...")
+    except KeyboardInterrupt:
+        print("\n\n👋 Goodbye!")
+        sys.exit(0)
+    except EOFError:
+        print("\n\n👋 Goodbye!")
+        sys.exit(0)
 
 def main():
-    """Main entry point"""
+    """Main CLI loop"""
+    
+    # Dictionary mapping choices to functions
+    script_functions: Dict[str, Callable] = {
+        "1": run_dynamic_collections,
+        "2": run_inventory_sync,
+    }
+    
+    # Check if we're in a virtual environment
+    if not os.environ.get('VIRTUAL_ENV'):
+        print("⚠️  Warning: Not in a virtual environment. Consider running 'source venv/bin/activate' first.")
+        print()
+    
     try:
-        manager = DynamicCollectionManager()
-        result = manager.run()
-        
-        if result["success"]:
-            print("\n✅ Dynamic collection management completed successfully!")
-            print(f"🔍 Discovered {result.get('collections_discovered', 0)} collections with job settings")
-            print(f"⚙️  Processed {result.get('collections_processed', 0)} collection jobs")
-            print(f"✅ Successful: {result.get('successful_jobs', 0)}")
-            print(f"❌ Failed: {result.get('failed_jobs', 0)}")
+        while True:
+            show_banner()
+            show_menu()
             
-            # Print detailed summary
-            if result.get('job_results'):
-                manager.print_job_execution_summary(result['job_results'])
-        else:
-            error_msg = result.get('error', result.get('message', 'Unknown error'))
-            print(f"\n❌ Dynamic collection management failed: {error_msg}")
-            sys.exit(1)
+            choice = get_user_choice()
             
+            if choice == "0":
+                print("\n👋 Goodbye!")
+                break
+            elif choice in script_functions:
+                # Clear screen before running script
+                os.system('clear' if os.name == 'posix' else 'cls')
+                
+                # Run the selected script
+                script_functions[choice]()
+                
+                # Wait for user input before returning to menu
+                wait_for_enter()
+                
+                # Clear screen before showing menu again
+                os.system('clear' if os.name == 'posix' else 'cls')
+            else:
+                print(f"\n❌ Invalid choice: '{choice}'. Please select a valid option.")
+                wait_for_enter()
+                os.system('clear' if os.name == 'posix' else 'cls')
+                
     except KeyboardInterrupt:
-        print("\n⏹️  Process interrupted by user")
-        sys.exit(0)
+        print("\n\n👋 Goodbye!")
     except Exception as e:
-        print(f"\n💥 Unexpected error: {e}")
+        print(f"\n💥 Unexpected error in main menu: {e}")
+        print("Please check your setup and try again.")
         sys.exit(1)
 
 if __name__ == "__main__":

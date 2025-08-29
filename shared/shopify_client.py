@@ -4,7 +4,11 @@ import re
 import time
 import json
 from typing import List, Dict, Any, Optional
-from models import FilteredProduct, ShopifyProduct
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from scripts.dynamic_collections.models import FilteredProduct, ShopifyProduct
 
 logger = logging.getLogger(__name__)
 
@@ -697,3 +701,218 @@ class ShopifyClient:
             else:
                 logger.warning(f"Error adding product {product_id}: {e}")
                 return False
+    
+    def get_all_active_products_with_variants(self) -> List[Dict[str, Any]]:
+        """Get all active products with their variants and inventory information"""
+        url = f"{self.base_url}/products.json"
+        
+        all_products = []
+        page_info = None
+        page_size = 250  # Maximum allowed by Shopify API
+        
+        try:
+            while True:
+                # Set up parameters for this request
+                params = {
+                    "limit": page_size,
+                    "fields": "id,title,handle,vendor,tags,variants"  # Include variants field
+                }
+                
+                # Only add status parameter on first request (not with page_info)
+                if not page_info:
+                    params["status"] = "active"  # Only get active products
+                else:
+                    params["page_info"] = page_info
+                
+                response = requests.get(url, headers=self.headers, params=params)
+                response.raise_for_status()
+                
+                data = response.json()
+                products_batch = data.get("products", [])
+                
+                if not products_batch:
+                    break
+                
+                all_products.extend(products_batch)
+                logger.debug(f"Fetched batch of {len(products_batch)} active products")
+                
+                # Check for pagination
+                link_header = response.headers.get("Link")
+                if link_header:
+                    next_page_info = self._extract_page_info(link_header, "next")
+                    if next_page_info:
+                        page_info = next_page_info
+                    else:
+                        break
+                else:
+                    break
+            
+            logger.info(f"Retrieved {len(all_products)} active products with variants")
+            return all_products
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching active products: {e}")
+            raise
+    
+    def update_variant_metafield(self, variant_id: int, namespace: str, key: str, value: str) -> bool:
+        """Update a single variant's metafield using the metafields endpoint"""
+        # First, check if metafield already exists
+        existing_metafields = self.get_variant_metafields(variant_id)
+        metafield_id = None
+        
+        for metafield in existing_metafields:
+            if metafield.get("namespace") == namespace and metafield.get("key") == key:
+                metafield_id = metafield.get("id")
+                break
+        
+        if metafield_id:
+            # Update existing metafield
+            url = f"{self.base_url}/variants/{variant_id}/metafields/{metafield_id}.json"
+            payload = {
+                "metafield": {
+                    "id": metafield_id,
+                    "value": int(value) if key == "inventory" else str(value),
+                    "type": "number_integer" if key == "inventory" else "single_line_text_field"
+                }
+            }
+            method = "PUT"
+        else:
+            # Create new metafield
+            url = f"{self.base_url}/variants/{variant_id}/metafields.json"
+            payload = {
+                "metafield": {
+                    "namespace": namespace,
+                    "key": key,
+                    "value": int(value) if key == "inventory" else str(value),
+                    "type": "number_integer" if key == "inventory" else "single_line_text_field"
+                }
+            }
+            method = "POST"
+        
+        try:
+            if method == "PUT":
+                response = requests.put(url, headers=self.headers, json=payload)
+            else:
+                response = requests.post(url, headers=self.headers, json=payload)
+            
+            response.raise_for_status()
+            
+            logger.debug(f"Successfully {'updated' if method == 'PUT' else 'created'} metafield {namespace}.{key} for variant {variant_id}")
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            # Get detailed error information
+            status_code = None
+            error_details = {}
+            error_text = str(e)
+            
+            if hasattr(e, 'response') and e.response is not None:
+                status_code = e.response.status_code
+                error_text = e.response.text
+                try:
+                    error_details = e.response.json()
+                except:
+                    error_details = {"raw_response": e.response.text}
+            
+            logger.error(f"Error updating variant {variant_id} metafield (method: {method}): {status_code} - {error_details} - URL: {url}")
+            logger.error(f"Raw error text: {error_text}")
+            logger.error(f"Payload sent: {json.dumps(payload, indent=2)}")
+            
+            if status_code == 429:
+                # Rate limit exceeded, wait and retry once
+                logger.warning(f"Rate limit exceeded for variant {variant_id}, retrying after delay")
+                time.sleep(2)
+                try:
+                    if method == "PUT":
+                        response = requests.put(url, headers=self.headers, json=payload)
+                    else:
+                        response = requests.post(url, headers=self.headers, json=payload)
+                    response.raise_for_status()
+                    return True
+                except Exception as retry_error:
+                    logger.error(f"Failed to update variant {variant_id} metafield after retry: {retry_error}")
+                    return False
+            else:
+                return False
+    
+    def get_variant_metafields(self, variant_id: int) -> List[Dict[str, Any]]:
+        """Get metafields for a specific variant"""
+        url = f"{self.base_url}/variants/{variant_id}/metafields.json"
+        
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            
+            data = response.json()
+            metafields = data.get("metafields", [])
+            
+            logger.debug(f"Found {len(metafields)} metafields for variant {variant_id}")
+            return metafields
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching metafields for variant {variant_id}: {e}")
+            return []
+    
+    def batch_update_variant_metafields(self, updates: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Update multiple variant metafields with controlled concurrency
+        
+        Args:
+            updates: List of update dictionaries with keys:
+                - variant_id: int
+                - namespace: str  
+                - key: str
+                - value: str
+        
+        Returns:
+            Dictionary with success/failure statistics
+        """
+        successful_updates = 0
+        failed_updates = []
+        
+        for update in updates:
+            try:
+                success = self.update_variant_metafield(
+                    variant_id=update["variant_id"],
+                    namespace=update["namespace"],
+                    key=update["key"],
+                    value=update["value"]
+                )
+                
+                if success:
+                    successful_updates += 1
+                else:
+                    failed_updates.append({
+                        "variant_id": update["variant_id"],
+                        "error": "Update failed"
+                    })
+                
+                # Small delay to avoid rate limiting
+                time.sleep(0.1)
+                
+            except Exception as e:
+                logger.error(f"Exception updating variant {update.get('variant_id')}: {e}")
+                failed_updates.append({
+                    "variant_id": update.get("variant_id"),
+                    "error": str(e)
+                })
+        
+        return {
+            "successful_updates": successful_updates,
+            "failed_updates": len(failed_updates),
+            "failures": failed_updates,
+            "total_attempted": len(updates)
+        }
+    
+    def _extract_page_info(self, link_header: str, rel_type: str) -> Optional[str]:
+        """Extract page_info from Link header for specific relation type"""
+        if not link_header:
+            return None
+        
+        # Look for the specific rel type (e.g., 'next', 'prev')
+        pattern = rf'<[^>]*[?&]page_info=([^&>]*)>[^>]*rel="{rel_type}"'
+        match = re.search(pattern, link_header)
+        
+        if match:
+            return match.group(1)
+        return None

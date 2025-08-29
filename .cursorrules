@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Dynamic Collection Builder that automates Shopify collection management based on Airtable sales data. The system fetches Spanish sales data from the last 90 days, applies filtering criteria, and updates a specific Shopify collection with qualifying products.
+This is a Dynamic Collection Manager that automates Shopify collection management based on Airtable sales data. The system has been redesigned to support multiple collections with dynamic job configurations via Shopify metafields. Each collection can have its own job settings stored in a `custom.job_settings` metafield, enabling flexible, scalable automation across multiple collections.
 
 ## Core Commands
 
@@ -20,14 +20,16 @@ pip install -r requirements.txt
 
 ### Development and Testing
 ```bash
-# Test Airtable data fetching and filtering (safe, read-only)
-python test_airtable.py
-
-# Check Shopify IDs for filtered products
-python check_shopify_ids.py
-
-# Run complete collection update (modifies Shopify)
+# Run main CLI launcher (recommended)
 python main.py
+
+# Run dynamic collection management directly (modifies Shopify)
+python scripts/dynamic_collections/main.py
+
+# Legacy test scripts (if they exist)
+python test_dynamic_collections.py
+python test_airtable.py
+python check_shopify_ids.py
 ```
 
 ### Virtual Environment Management
@@ -41,35 +43,96 @@ deactivate
 
 ## Architecture
 
-The system follows a modular architecture with clear separation of concerns:
+The system follows a modular, extensible architecture supporting multiple job types and collections:
+
+### Project Structure
+```
+newcop-backend-jobs/
+├── main.py                           # Main CLI launcher
+├── requirements.txt
+├── CLAUDE.md
+├── scripts/
+│   ├── dynamic_collections/          # Dynamic collection functionality
+│   │   ├── main.py                   # Dynamic collections orchestrator
+│   │   ├── job_executor.py           # Job executors and factory
+│   │   ├── models.py                 # Pydantic models
+│   │   ├── product_filter.py         # Product filtering logic
+│   │   └── scheduler.py              # Scheduling utilities
+│   └── [future_scripts]/             # Additional script modules
+├── shared/                           # Shared utilities
+│   ├── airtable_client.py           # Airtable API client
+│   ├── shopify_client.py            # Shopify API client
+│   └── utils.py                     # Common utilities
+└── logs/
+    └── dynamic_collection.log       # Log files
+```
 
 ### Core Components
-- **DynamicCollectionBuilder** (`main.py`): Orchestrates the entire process
-- **AirtableClient** (`airtable_client.py`): Handles Airtable API interactions with pagination support
-- **ShopifyClient** (`shopify_client.py`): Manages Shopify collection updates using direct product IDs
-- **ProductFilter** (`product_filter.py`): Applies business logic for product qualification
-- **Data Models** (`models.py`): Pydantic models for type safety and validation
+- **Main CLI Launcher** (`main.py`): Centralized entry point with menu system
+- **DynamicCollectionManager** (`scripts/dynamic_collections/main.py`): Orchestrates discovery and execution of multiple collection jobs
+- **JobExecutorFactory** (`scripts/dynamic_collections/job_executor.py`): Creates appropriate job executors based on job type
+- **JobExecutor Classes** (`scripts/dynamic_collections/job_executor.py`): Handle specific job type implementations
+- **ShopifyClient** (`shared/shopify_client.py`): Manages Shopify API interactions, collections, and metafields
+- **AirtableClient** (`shared/airtable_client.py`): Handles Airtable API interactions with pagination support
+- **ProductFilter** (`scripts/dynamic_collections/product_filter.py`): Applies business logic for product qualification
+- **Data Models** (`scripts/dynamic_collections/models.py`): Pydantic models for configuration validation and type safety
+
+### Dynamic Configuration System
+Collections with automation jobs are identified by:
+1. **Collection Naming**: Collections start with "Auto -" prefix for efficient discovery
+2. **Metafield Configuration**: Each collection has a `custom.job_settings` metafield containing:
+   ```json
+   {
+     "jobType": "getTopResellProducts",
+     "Description": "Based Airtable Sales Data of Spain, we automatically update this collection for resell products",
+     "AIRTABLE_BASE_ID": "appDE0y01TchMqX8N",
+     "AIRTABLE_TABLE_ID": "tbljkyhWy5D6b65Im",
+     "AIRTABLE_VIEW_ID": "viwixRrDpjcAYwHId",
+     "UPDATE_FREQUENCY_HOURS": "24",
+     "MAX_AIRTABLE_RECORDS": "500",
+     "MIN_QUARTERLY_SALES": "5",
+     "EXCLUDED_TAGS": ["retail"],
+     "INCLUDED_TAGS": null,
+     "BRAND_KEYWORDS": ["nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma", "pop mart"]
+   }
+   ```
 
 ### Data Flow
-1. **Fetch**: AirtableClient retrieves up to 500 sales records from Spain view
-2. **Parse**: Raw Airtable records converted to SalesRecord models with field mapping
-3. **Filter**: ProductFilter applies brand, tag, and sales criteria
-4. **Transform**: Qualified products converted to FilteredProduct models with Shopify IDs
-5. **Update**: ShopifyClient adds products directly to collection using Shopify IDs
+1. **Discovery**: System scans all collections starting with "Auto -" prefix
+2. **Configuration**: Parses `custom.job_settings` metafield for each collection
+3. **Validation**: Validates job settings against appropriate Pydantic models
+4. **Execution**: Creates appropriate job executor and runs job for each collection
+5. **Reporting**: Provides detailed execution results and status for all collections
 
-### Key Business Rules
-- **Brand Keywords**: nike, air jordan, adidas, yeezy, new balance, asics, puma, pop mart
-- **Excluded Tags**: "retail" 
-- **Sales Threshold**: quarterly_sales >= 5.0
-- **Data Source**: Airtable view `viwixRrDpjcAYwHId` from table `tbljkyhWy5D6b65Im`
-- **Target Collection**: Shopify collection ID `650542809429`
+### Supported Job Types
+- **getTopResellProducts**: Fetches Airtable sales data, filters products, and updates collection
+
+### Key Business Rules (getTopResellProducts)
+All filtering criteria are now **configurable per collection** via metafields:
+- **Brand Keywords**: Configurable list (default: nike, air jordan, adidas, yeezy, new balance, asics, puma, pop mart)
+- **Excluded Tags**: Configurable list of tags to exclude (can be null for no exclusions)
+- **Included Tags**: Configurable list of required tags (can be null for no requirements)
+- **Sales Threshold**: Configurable minimum quarterly sales (default: 5.0)
+- **Data Sources**: Collection-specific Airtable base, table, and view IDs
 
 ## Configuration
 
-The system uses hardcoded credentials and IDs (as specified in requirements):
-- Airtable Token: `pat8Pg6d8OumFPpOO.4b99b41e37fd0c93f5da770a6073c66e21741f574910736a6184347f342faee6`
-- Shopify Admin Token: `810ce8ca2df27f5dd5129dd4f6d2193e`
-- Airtable Base: `appDE0y01TchMqX8N`
+### Environment Variables
+Required environment variables (stored in `.env` file):
+- `AIRTABLE_TOKEN`: Airtable Personal Access Token
+- `SHOPIFY_ADMIN_TOKEN`: Shopify Admin API Token
+- `SHOPIFY_SHOP_DOMAIN`: Shopify shop domain (e.g., "yourshop.myshopify.com")
+
+### Dynamic Job Configuration
+Each collection's job settings are stored in Shopify metafields:
+- **Namespace**: `custom`
+- **Key**: `job_settings`
+- **Type**: JSON
+- **Content**: Job-specific configuration parameters
+
+### Collection Identification
+- Collections with automation must start with "Auto -" prefix
+- This naming convention enables efficient discovery without scanning all collections
 
 ## Field Mapping
 
@@ -83,13 +146,126 @@ Critical Airtable to model field mappings:
 
 ## Performance Optimizations
 
-- **Pagination**: Airtable client automatically handles API pagination for large datasets
+- **Efficient Collection Discovery**: Filters collections by "Auto -" prefix before checking metafields
+- **Pagination**: Both Airtable and Shopify clients handle API pagination automatically
 - **Direct ID Updates**: Uses Shopify product IDs from Airtable instead of name-based searches
-- **Batch Processing**: Filters and validates records in memory before API updates
-- **Error Handling**: Continues processing on individual record failures
+- **Parallel Processing**: Can process multiple collections concurrently using ThreadPoolExecutor (max 3 concurrent)
+- **Fast Collection Updates**: Uses "clear and rebuild" strategy - removes all products then adds new ones in correct order
+- **Optimized Batch Sizes**: 50 products per batch for both removal and addition operations
+- **Smart Progress Reporting**: Progress updates every 50 products to reduce log noise
+- **Error Handling**: Continues processing remaining collections if individual jobs fail
+
+## Extensibility Framework
+
+### Adding New Job Types
+
+To add a new job type (e.g., "seasonalProducts"):
+
+1. **Define Job Type** in `models.py`:
+   ```python
+   class JobType(str, Enum):
+       GET_TOP_RESELL_PRODUCTS = "getTopResellProducts"
+       SEASONAL_PRODUCTS = "seasonalProducts"  # New job type
+   ```
+
+2. **Create Job Settings Model** in `models.py`:
+   ```python
+   class SeasonalProductsJobSettings(BaseJobSettings):
+       SEASON_START_DATE: str
+       SEASON_END_DATE: str
+       PRODUCT_CATEGORIES: List[str]
+       
+       @validator('jobType')
+       def validate_job_type(cls, v):
+           if v != JobType.SEASONAL_PRODUCTS:
+               raise ValueError(f"Invalid job type for SeasonalProductsJobSettings: {v}")
+           return v
+   ```
+
+3. **Implement Job Executor** in `job_executor.py`:
+   ```python
+   class SeasonalProductsJobExecutor(JobExecutor):
+       def get_supported_job_type(self) -> str:
+           return "seasonalProducts"
+       
+       def execute(self, collection_with_settings: CollectionWithJobSettings) -> Dict[str, Any]:
+           # Implement seasonal products logic
+           pass
+   ```
+
+4. **Register Executor** in `JobExecutorFactory._register_executors()`:
+   ```python
+   executors = [
+       TopResellProductsJobExecutor(self.airtable_token, self.shopify_client),
+       SeasonalProductsJobExecutor(self.airtable_token, self.shopify_client),  # Add new executor
+   ]
+   ```
+
+5. **Update Factory Method** in `CollectionWithJobSettings.create_job_settings_from_dict()`:
+   ```python
+   if job_type == JobType.SEASONAL_PRODUCTS:
+       return SeasonalProductsJobSettings(**job_data)
+   ```
+
+### Job Settings Example for New Type
+```json
+{
+  "jobType": "seasonalProducts",
+  "Description": "Automatically manage seasonal product collections",
+  "SEASON_START_DATE": "2024-12-01",
+  "SEASON_END_DATE": "2024-12-31",
+  "PRODUCT_CATEGORIES": ["winter", "holiday", "gifts"],
+  "UPDATE_FREQUENCY_HOURS": "12",
+  "MAX_AIRTABLE_RECORDS": "300"
+}
+```
+
+## Collection Update Strategy
+
+The system uses a **"clear and rebuild"** approach for collection updates:
+
+1. **Discovery Phase**: Find collections starting with "Auto -" and parse their metafield settings
+2. **Data Fetching**: Retrieve sales data from Airtable using collection-specific configurations
+3. **Filtering**: Apply dynamic filtering criteria (brands, tags, sales thresholds) from metafields
+4. **Validation**: Check for products missing Shopify IDs and report them clearly:
+   ```
+   ❌ Product "Example Product" has no valid Shopify ID (current ID: None), skipping
+   ⚠️  2 products skipped due to missing Shopify IDs:
+     1. Example Product
+     2. Another Product
+   ```
+5. **Collection Update**: 
+   - Remove ALL existing products from collection
+   - Add filtered products in sales-ranked order (highest quarterly sales first)
+6. **Parallel Execution**: Process multiple collections concurrently
+
+## Shopify API Integration
+
+- **API Version**: Uses 2025-01 (latest available)
+- **Collection Access**: Uses `collection_listings` endpoint instead of direct collections API
+- **Batch Operations**: 50 products per batch for optimal performance
+- **Rate Limiting**: Built-in delays and retry logic for 429 responses
+- **Error Handling**: Continues processing other collections if one fails
+
+## Troubleshooting
+
+### Common Issues
+- **Missing Shopify IDs**: System will clearly list products without valid Shopify IDs
+- **Collection Count Mismatch**: Expected when some filtered products lack Shopify IDs
+- **API 404 Errors**: Usually indicates missing permissions or incorrect API version
+- **No Sales Records**: Check Airtable base/table/view IDs in collection metafields
+
+### Required Shopify Permissions
+- `read_products` and `write_products` (for collections access)
+- `read_product_listings` and `write_product_listings` (for collection_listings API)
+- `read_metaobjects` and `write_metaobjects` (for metafield access)
 
 ## Logging
 
-Dual logging setup:
-- Console output for real-time monitoring
-- File logging to `dynamic_collection.log` for persistence
+Optimized logging system:
+- Console output for real-time monitoring during execution  
+- File logging to `dynamic_collection.log` for persistence and debugging
+- Structured log messages with timestamps, component names, and log levels
+- Progress indicators for batch operations (🗑️ for removal, ➕ for addition)
+- Clear error reporting with product names for missing Shopify IDs
+- Execution summaries with success/failure counts per collection
