@@ -11,6 +11,7 @@ from shared.shopify_client import ShopifyClient
 from scripts.dynamic_collections.product_filter import ProductFilter
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class JobExecutor(ABC):
     """Abstract base class for job executors"""
@@ -82,8 +83,11 @@ class TopResellProductsJobExecutor(JobExecutor):
                 return {"success": False, "message": "No sales records found", "collection_id": collection_id}
             
             # Filter products based on criteria with newcop exception logic
-            logger.info("Filtering products based on brand, tags, and sales criteria...")
+            logger.info(f"🔍 Filtering {len(sales_records)} products based on brand, tags, and sales criteria...")
+            print(f"🔍 Filtering {len(sales_records)} products based on brand, tags, and sales criteria...")
             filtered_products = product_filter.filter_products_with_newcop_exception(sales_records)
+            logger.info(f"✅ Filtering completed: {len(filtered_products)}/{len(sales_records)} products passed criteria")
+            print(f"✅ Filtering completed: {len(filtered_products)}/{len(sales_records)} products passed criteria")
             
             if not filtered_products:
                 logger.warning("No products passed filtering criteria")
@@ -102,11 +106,20 @@ class TopResellProductsJobExecutor(JobExecutor):
                     "total_products": len(filtered_products)
                 }
             else:
-                logger.info(f"Updating Shopify collection {collection_id}...")
+                logger.info(f"🚀 Starting Shopify collection update for {collection_id}...")
+                logger.info(f"📊 Will update collection with {len(filtered_products)} products")
+                print(f"🚀 Starting Shopify collection update for {collection_id}...")
+                print(f"📊 Will update collection with {len(filtered_products)} products")
                 update_result = self.shopify_client.update_collection_with_filtered_products(
                     collection_id,
                     filtered_products
                 )
+                if update_result.get("success"):
+                    logger.info(f"✅ Collection update completed successfully!")
+                    print(f"✅ Collection update completed successfully!")
+                else:
+                    logger.warning(f"⚠️  Collection update completed with some issues")
+                    print(f"⚠️  Collection update completed with some issues")
             
             # Prepare final result
             result = {

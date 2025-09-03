@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.dynamic_collections.models import FilteredProduct, ShopifyProduct
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class ShopifyClient:
     """Client for interacting with Shopify Admin API"""
@@ -340,9 +341,12 @@ class ShopifyClient:
             
             for i in range(0, len(collect_ids_to_remove), batch_size):
                 batch = collect_ids_to_remove[i:i + batch_size]
-                # Progress update every few batches
-                if (i//batch_size + 1) % 3 == 0 or i//batch_size + 1 == 1:
-                    logger.info(f"🗑️  Removing batch {i//batch_size + 1}: {len(batch)} collects")
+                batch_num = i//batch_size + 1
+                total_batches = (len(collect_ids_to_remove) + batch_size - 1) // batch_size
+                progress_pct = i / len(collect_ids_to_remove) * 100
+                
+                logger.info(f"🗑️  Removing batch {batch_num}/{total_batches}: {len(batch)} products ({progress_pct:.1f}%)")
+                print(f"🗑️  Removing batch {batch_num}/{total_batches}: {len(batch)} products ({progress_pct:.1f}%)")
                 
                 for collect_id in batch:
                     try:
@@ -371,6 +375,7 @@ class ShopifyClient:
         This approach is faster and avoids position update errors.
         """
         logger.info(f"Starting collection replacement for {collection_id} with {len(filtered_products)} filtered products")
+        print(f"🔄 Starting collection replacement for {collection_id} with {len(filtered_products)} filtered products")
         
         # Extract valid Shopify IDs
         new_product_ids = []
@@ -412,6 +417,7 @@ class ShopifyClient:
         removed_count = 0
         if current_product_ids:
             logger.info(f"Removing ALL {len(current_product_ids)} products from collection...")
+            print(f"🗑️  Removing ALL {len(current_product_ids)} products from collection...")
             try:
                 remove_success = self.remove_all_products_from_collection(collection_id, current_product_ids)
                 if remove_success:
@@ -424,6 +430,7 @@ class ShopifyClient:
         
         # Step 2: Add new products in correct order (no position updates needed)
         logger.info(f"Adding {len(new_product_ids)} products to collection in sales order...")
+        print(f"➕ Adding {len(new_product_ids)} products to collection in sales order...")
         try:
             add_result = self.add_products_to_collection_in_order(collection_id, new_product_ids)
             add_success = add_result.get("success", False)
@@ -617,9 +624,11 @@ class ShopifyClient:
                     success = self._add_single_product_to_collection_with_position(collection_id, product_id, i + 1)
                     if success:
                         success_count += 1
-                        # Progress update every 50 products
-                        if (i + 1) % 50 == 0:
-                            logger.info(f"➕ Added {i + 1}/{len(product_ids)} products")
+                        # Progress update every 10 products for better visibility
+                        if (i + 1) % 10 == 0:
+                            progress_pct = (i + 1) / len(product_ids) * 100
+                            logger.info(f"➕ Added {i + 1}/{len(product_ids)} products ({progress_pct:.1f}%)")
+                            print(f"➕ Added {i + 1}/{len(product_ids)} products ({progress_pct:.1f}%)")
                     else:
                         failed_products.append(product_id)
                         logger.warning(f"❌ Failed to add product {product_id} to collection")
@@ -768,23 +777,27 @@ class ShopifyClient:
         if metafield_id:
             # Update existing metafield
             url = f"{self.base_url}/variants/{variant_id}/metafields/{metafield_id}.json"
+            # Determine value and type based on key
+            metafield_value, metafield_type = self._get_metafield_value_and_type(key, value)
             payload = {
                 "metafield": {
                     "id": metafield_id,
-                    "value": int(value) if key == "inventory" else str(value),
-                    "type": "number_integer" if key == "inventory" else "single_line_text_field"
+                    "value": metafield_value,
+                    "type": metafield_type
                 }
             }
             method = "PUT"
         else:
             # Create new metafield
             url = f"{self.base_url}/variants/{variant_id}/metafields.json"
+            # Determine value and type based on key
+            metafield_value, metafield_type = self._get_metafield_value_and_type(key, value)
             payload = {
                 "metafield": {
                     "namespace": namespace,
                     "key": key,
-                    "value": int(value) if key == "inventory" else str(value),
-                    "type": "number_integer" if key == "inventory" else "single_line_text_field"
+                    "value": metafield_value,
+                    "type": metafield_type
                 }
             }
             method = "POST"
@@ -834,6 +847,16 @@ class ShopifyClient:
                     return False
             else:
                 return False
+    
+    def _get_metafield_value_and_type(self, key: str, value: str) -> tuple:
+        """Determine the appropriate value and type for a metafield based on the key"""
+        if key == "inventory":
+            return int(value), "number_integer"
+        elif key in ["price", "compare_price"]:
+            # For prices, use number_decimal type to match Shopify's definition
+            return str(value), "number_decimal"
+        else:
+            return str(value), "single_line_text_field"
     
     def get_variant_metafields(self, variant_id: int) -> List[Dict[str, Any]]:
         """Get metafields for a specific variant"""
@@ -941,3 +964,415 @@ class ShopifyClient:
         if match:
             return match.group(1)
         return None
+
+    # Customer API Methods
+    
+    def get_all_customers(self, limit: Optional[int] = None, batch_callback: Optional[callable] = None, batch_size: int = 250) -> List[Dict[str, Any]]:
+        """
+        Get all customers from Shopify with pagination support and robust error handling
+        
+        Args:
+            limit: Optional limit on number of customers to fetch (None for all customers)
+            batch_callback: Optional callback function to process customers in batches
+            batch_size: Size of batches to process with callback (default: 250)
+        """
+        url = f"{self.base_url}/customers.json"
+        
+        all_customers = []
+        page_info = None
+        page_size = 100  # Reduced from 250 to be more conservative
+        
+        try:
+            limit_msg = f" (limit: {limit})" if limit else " (no limit - fetching all customers)"
+            logger.info(f"🔄 Starting customer fetch from Shopify{limit_msg}...")
+            
+            # Initialize batch processing counter
+            self._last_processed_count = 0
+            
+            if limit:
+                logger.info(f"⚠️  Limited mode: Will stop after fetching {limit} customers")
+            else:
+                logger.info("📈 Fetching ALL customers - this will take several minutes with frequent progress updates")
+                logger.info("📈 You will see progress for each page and milestone updates every 100 customers")
+            page_count = 0
+            start_time = time.time()
+            
+            while True:
+                page_count += 1
+                logger.info(f"📄 Fetching page {page_count} (batch size: {page_size})...")
+                
+                # Set up parameters for this request
+                params = {"limit": page_size}
+                if page_info:
+                    params["page_info"] = page_info
+                    logger.info(f"🔗 Using page_info for pagination: {page_info[:50]}...")
+                else:
+                    logger.info("🏁 This is the first page (no page_info)")
+                
+                # Add retry logic for network issues with more aggressive retries
+                max_retries = 5
+                response = None
+                
+                for attempt in range(max_retries):
+                    try:
+                        # Always show API request details for better visibility
+                        logger.info(f"🔗 Making API request (attempt {attempt + 1}/{max_retries}) for page {page_count}")
+                        logger.info(f"📡 Request URL: {url}")
+                        logger.info(f"📊 Request params: {params}")
+                        response = requests.get(url, headers=self.headers, params=params, timeout=120)
+                        logger.info(f"📨 Response status: {response.status_code}")
+                        
+                        # Check for rate limiting
+                        if response.status_code == 429:
+                            try:
+                                try:
+                            try:
+                        retry_after = int(float(response.headers.get('Retry-After', 2)))
+                    except (ValueError, TypeError):
+                        retry_after = 2  # Default fallback
+                        except (ValueError, TypeError):
+                            retry_after = 2  # Default fallback
+                            except (ValueError, TypeError):
+                                retry_after = 2  # Default fallback
+                            logger.warning(f"⏸️  Rate limited, waiting {retry_after}s before retry...")
+                            time.sleep(retry_after)
+                            continue
+                        
+                        response.raise_for_status()
+                        break  # Success, exit retry loop
+                        
+                    except requests.exceptions.Timeout as e:
+                        wait_time = min(5 * (2 ** attempt), 60)  # Cap at 60 seconds
+                        if attempt < max_retries - 1:
+                            logger.warning(f"⏱️  Request timeout (attempt {attempt + 1}/{max_retries}), retrying in {wait_time}s...")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"💥 Request timed out after {max_retries} attempts")
+                            raise
+                            
+                    except requests.exceptions.ConnectionError as e:
+                        wait_time = min(3 * (2 ** attempt), 30)  # Cap at 30 seconds
+                        if attempt < max_retries - 1:
+                            logger.warning(f"🔌 Connection error (attempt {attempt + 1}/{max_retries}), retrying in {wait_time}s: {e}")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"💥 Connection failed after {max_retries} attempts: {e}")
+                            raise
+                            
+                    except requests.exceptions.RequestException as e:
+                        if attempt < max_retries - 1:
+                            wait_time = 2 ** attempt
+                            logger.warning(f"🚨 API error (attempt {attempt + 1}/{max_retries}), retrying in {wait_time}s: {e}")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"💥 API request failed after {max_retries} attempts: {e}")
+                            raise
+                
+                # Parse response
+                try:
+                    data = response.json()
+                    customers_batch = data.get("customers", [])
+                    logger.info(f"📦 Successfully parsed {len(customers_batch)} customers from page {page_count}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"💥 Failed to parse JSON response: {e}")
+                    logger.error(f"Response content: {response.text[:500]}...")
+                    raise
+                
+                if not customers_batch:
+                    logger.info(f"📄 No more customers found on page {page_count}")
+                    break
+                
+                # Process batch callback immediately for each page if provided
+                if batch_callback:
+                    batch_start_idx = len(all_customers)  # Starting index for this batch
+                    logger.info(f"🔄 Processing page callback for customers {batch_start_idx + 1}-{batch_start_idx + len(customers_batch)}...")
+                    try:
+                        batch_callback(customers_batch, batch_start_idx)
+                        logger.info(f"✅ Page callback completed for {len(customers_batch)} customers")
+                    except Exception as e:
+                        logger.error(f"💥 Page callback failed: {e}")
+                        # Continue processing even if callback fails
+                
+                all_customers.extend(customers_batch)
+                batch_time = time.time() - start_time
+                
+                # More frequent progress updates
+                customers_per_sec = len(all_customers) / max(batch_time, 0.1)  # Avoid division by zero
+                eta_remaining = ""
+                if not limit:  # Only estimate for unlimited fetches
+                    if len(all_customers) >= 500:  # Estimate earlier after we have some data
+                        estimated_total = 12000  # Rough estimate based on previous runs
+                        if len(all_customers) > 0:
+                            estimated_remaining_time = (estimated_total - len(all_customers)) / customers_per_sec
+                            eta_remaining = f", ETA: {estimated_remaining_time/60:.1f}min"
+                
+                # Show page progress for every page in large fetches
+                if not limit or page_count <= 10:  # Always show for limited fetches, or first 10 pages of unlimited
+                    logger.info(f"✅ Page {page_count}: +{len(customers_batch)} customers (total: {len(all_customers)}, {customers_per_sec:.1f}/sec{eta_remaining})")
+                elif page_count % 5 == 0:  # Every 5th page for unlimited fetches
+                    logger.info(f"✅ Page {page_count}: +{len(customers_batch)} customers (total: {len(all_customers)}, {customers_per_sec:.1f}/sec{eta_remaining})")
+                
+                # Check if we've reached the limit
+                if limit and len(all_customers) >= limit:
+                    logger.info(f"🎯 Reached customer limit ({limit}), stopping fetch...")
+                    all_customers = all_customers[:limit]  # Trim to exact limit
+                    break
+                
+                # More frequent progress milestone updates
+                if len(all_customers) % 100 == 0:  # Every 100 customers for better visibility
+                    avg_time = batch_time / len(all_customers)
+                    customers_per_sec = len(all_customers) / max(batch_time, 0.1)
+                    progress_pct = ""
+                    eta_str = ""
+                    if not limit:
+                        estimated_total = 12000
+                        progress_pct = f" ({len(all_customers)/estimated_total*100:.1f}%)"
+                        if len(all_customers) > 200:  # Only show ETA after some data
+                            remaining = estimated_total - len(all_customers)
+                            eta_seconds = remaining / max(customers_per_sec, 1)
+                            eta_str = f", ETA: {eta_seconds/60:.1f}min"
+                    logger.info(f"🎯 MILESTONE: {len(all_customers)} customers fetched{progress_pct} in {batch_time:.1f}s ({customers_per_sec:.1f}/sec{eta_str})")
+                
+                # Check for next page using Link header
+                link_header = response.headers.get("Link", "")
+                next_page_info = self._extract_page_info(link_header, "next")
+                
+                if next_page_info:
+                    page_info = next_page_info
+                    # Add small delay between requests to be API-friendly
+                    time.sleep(0.1)
+                else:
+                    logger.info(f"📄 Reached last page (page {page_count})")
+                    break  # No more pages
+            
+            # Process any remaining customers that didn't reach batch_size
+            if batch_callback and len(all_customers) > 0:
+                last_processed = getattr(self, '_last_processed_count', 0)
+                if last_processed < len(all_customers):
+                    remaining_batch = all_customers[last_processed:]
+                    logger.info(f"🔄 Processing final batch callback for remaining {len(remaining_batch)} customers...")
+                    try:
+                        batch_callback(remaining_batch, last_processed)
+                        logger.info(f"✅ Final batch callback completed for {len(remaining_batch)} customers")
+                    except Exception as e:
+                        logger.error(f"💥 Final batch callback failed: {e}")
+            
+            total_time = time.time() - start_time
+            logger.info(f"🎉 Successfully fetched {len(all_customers)} customers in {page_count} pages ({total_time:.1f}s total)")
+            return all_customers
+            
+        except Exception as e:
+            logger.error(f"💥 Critical error fetching customers: {e}")
+            logger.error(f"📊 Partial result: {len(all_customers)} customers fetched before error")
+            raise
+    
+    def get_customer_by_id(self, customer_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific customer by ID from Shopify
+        
+        Args:
+            customer_id: The Shopify customer ID
+            
+        Returns:
+            Customer data or None if not found
+        """
+        url = f"{self.base_url}/customers/{customer_id}.json"
+        
+        try:
+            response = requests.get(url, headers=self.headers)
+            if response.status_code == 200:
+                return response.json().get("customer")
+            elif response.status_code == 404:
+                logger.warning(f"Customer {customer_id} not found")
+                return None
+            else:
+                logger.error(f"Failed to fetch customer {customer_id}: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error fetching customer {customer_id}: {e}")
+            return None
+
+    def update_customer_metafield(self, customer_id: int, namespace: str, key: str, value: str, create_if_missing: bool = False) -> bool:
+        """Update a metafield for a specific customer with enhanced rate limiting and retry logic"""
+        
+        # Add small delay before each request to reduce API pressure
+        time.sleep(0.2)  # 200ms delay to reduce 429 errors
+        
+        # First, check if metafield already exists
+        existing_metafield = self._get_customer_metafield(customer_id, namespace, key)
+        
+        if existing_metafield:
+            # Update existing metafield - use minimal payload to avoid type conflicts
+            metafield_id = existing_metafield.get("id")
+            existing_type = existing_metafield.get("type", "single_line_text_field")
+            update_url = f"{self.base_url}/customers/{customer_id}/metafields/{metafield_id}.json"
+            
+            # Convert value based on existing metafield type
+            converted_value = value
+            if existing_type == "boolean":
+                # Convert string to boolean for boolean type metafields
+                converted_value = value.lower() == "true" if isinstance(value, str) else bool(value)
+            
+            payload = {
+                "metafield": {
+                    "id": metafield_id,
+                    "value": converted_value
+                }
+            }
+            
+            # Retry logic with exponential backoff for 429 errors
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = requests.put(update_url, headers=self.headers, json=payload)
+                    
+                    if response.status_code == 429:
+                        # Rate limit exceeded, use exponential backoff
+                        try:
+                            try:
+                        retry_after = int(float(response.headers.get('Retry-After', 2)))
+                    except (ValueError, TypeError):
+                        retry_after = 2  # Default fallback
+                        except (ValueError, TypeError):
+                            retry_after = 2  # Default fallback
+                        wait_time = max(retry_after, 2 ** attempt)  # At least 2^attempt seconds
+                        logger.warning(f"⏸️  Rate limited updating customer {customer_id}, waiting {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    
+                    response.raise_for_status()
+                    logger.debug(f"✅ Updated customer {customer_id} metafield {namespace}.{key} = {value}")
+                    return True
+                    
+                except requests.exceptions.RequestException as e:
+                    if attempt == max_retries - 1:  # Last attempt
+                        logger.error(f"❌ Error updating customer {customer_id} metafield {namespace}.{key}: {e}")
+                        return False
+                    else:
+                        # Wait before retry
+                        wait_time = 2 ** attempt
+                        logger.warning(f"⚠️  Request failed for customer {customer_id}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries}): {e}")
+                        time.sleep(wait_time)
+        else:
+            # Metafield does not exist
+            if create_if_missing:
+                # Create new metafield with boolean type (matching Shopify Admin definition)
+                url = f"{self.base_url}/customers/{customer_id}/metafields.json"
+                
+                # Convert value to boolean for boolean type metafields
+                converted_value = value.lower() == "true" if isinstance(value, str) else bool(value)
+                
+                payload = {
+                    "metafield": {
+                        "namespace": namespace,
+                        "key": key,
+                        "value": converted_value,
+                        "type": "boolean"
+                    }
+                }
+                
+                # Retry logic with exponential backoff for 429 errors
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        response = requests.post(url, headers=self.headers, json=payload)
+                        
+                        if response.status_code == 429:
+                            # Rate limit exceeded, use exponential backoff
+                            try:
+                                try:
+                            try:
+                        retry_after = int(float(response.headers.get('Retry-After', 2)))
+                    except (ValueError, TypeError):
+                        retry_after = 2  # Default fallback
+                        except (ValueError, TypeError):
+                            retry_after = 2  # Default fallback
+                            except (ValueError, TypeError):
+                                retry_after = 2  # Default fallback
+                            wait_time = max(retry_after, 2 ** attempt)  # At least 2^attempt seconds
+                            logger.warning(f"⏸️  Rate limited creating customer {customer_id} metafield, waiting {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                            time.sleep(wait_time)
+                            continue
+                        
+                        response.raise_for_status()
+                        logger.debug(f"✅ Created customer {customer_id} metafield {namespace}.{key} = {converted_value}")
+                        return True
+                        
+                    except requests.exceptions.RequestException as e:
+                        if attempt == max_retries - 1:  # Last attempt
+                            logger.error(f"❌ Error creating customer {customer_id} metafield {namespace}.{key}: {e}")
+                            return False
+                        else:
+                            # Wait before retry
+                            wait_time = 2 ** attempt
+                            logger.warning(f"⚠️  Create request failed for customer {customer_id}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries}): {e}")
+                            time.sleep(wait_time)
+            else:
+                # Don't create new ones, only update existing ones
+                logger.warning(f"⚠️  Customer {customer_id} does not have metafield {namespace}.{key} - skipping (only updating existing metafields)")
+                return False
+
+    def _get_customer_metafield(self, customer_id: int, namespace: str, key: str) -> Optional[Dict[str, Any]]:
+        """Get a specific metafield for a customer with rate limiting protection"""
+        url = f"{self.base_url}/customers/{customer_id}/metafields.json"
+        
+        # Add small delay before GET request
+        time.sleep(0.1)  # 100ms delay for GET requests
+        
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=self.headers)
+                
+                if response.status_code == 429:
+                    # Rate limit exceeded
+                    try:
+                        retry_after = int(float(response.headers.get('Retry-After', 2)))
+                    except (ValueError, TypeError):
+                        retry_after = 2  # Default fallback
+                    wait_time = max(retry_after, 2 ** attempt)
+                    logger.warning(f"⏸️  Rate limited getting customer {customer_id} metafields, waiting {wait_time}s")
+                    time.sleep(wait_time)
+                    continue
+                
+                response.raise_for_status()
+                
+                data = response.json()
+                metafields = data.get("metafields", [])
+                
+                # Look for the specific metafield
+                for metafield in metafields:
+                    if (metafield.get("namespace") == namespace and 
+                        metafield.get("key") == key):
+                        return metafield
+                
+                return None
+                
+            except requests.exceptions.RequestException as e:
+                if attempt == max_retries - 1:  # Last attempt
+                    logger.debug(f"Error fetching customer {customer_id} metafields: {e}")
+                    return None
+                else:
+                    # Wait before retry
+                    wait_time = 2 ** attempt
+                    logger.warning(f"⚠️  GET metafields failed for customer {customer_id}, retrying in {wait_time}s: {e}")
+                    time.sleep(wait_time)
+
+    def get_customer_metafields(self, customer_id: int) -> List[Dict[str, Any]]:
+        """Get all metafields for a specific customer"""
+        url = f"{self.base_url}/customers/{customer_id}/metafields.json"
+        
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            
+            data = response.json()
+            metafields = data.get("metafields", [])
+            
+            logger.debug(f"Found {len(metafields)} metafields for customer {customer_id}")
+            return metafields
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching metafields for customer {customer_id}: {e}")
+            raise

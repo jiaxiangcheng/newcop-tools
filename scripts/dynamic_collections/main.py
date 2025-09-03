@@ -38,6 +38,20 @@ load_dotenv()
 # Set up logging
 logger = setup_logger('dynamic_collections', 'dynamic_collection.log')
 
+# Also configure related loggers to use the same settings
+related_loggers = [
+    'shared.shopify_client',
+    'scripts.dynamic_collections.job_executor',
+    'scripts.dynamic_collections.product_filter'
+]
+
+for logger_name in related_loggers:
+    child_logger = logging.getLogger(logger_name)
+    child_logger.setLevel(logging.INFO)
+    # Copy handlers from main logger
+    for handler in logger.handlers:
+        child_logger.addHandler(handler)
+
 class DynamicCollectionManager:
     """Main class to orchestrate dynamic collection jobs across multiple collections"""
     
@@ -119,13 +133,15 @@ class DynamicCollectionManager:
         job_type = collection_with_settings.job_settings.jobType
         collection_title = collection_with_settings.collection_title
         
-        logger.info(f"Executing job '{job_type}' for collection '{collection_title}'...")
+        logger.info(f"🎯 Executing job '{job_type}' for collection '{collection_title}'...")
+        logger.info(f"📋 Collection ID: {collection_with_settings.collection_id}")
         
         try:
             # Get appropriate executor for the job type
             executor = self.job_executor_factory.get_executor(job_type)
             
             # Execute the job
+            logger.info(f"▶️  Starting job execution...")
             result = executor.execute(collection_with_settings)
             
             if result.get("success"):

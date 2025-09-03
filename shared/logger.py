@@ -81,31 +81,36 @@ if platform.system() == 'Windows':
 
 def setup_logger(
     logger_name: str,
-    log_file_name: str,
+    log_file_name: str = None,
     log_level: int = logging.INFO,
-    format_string: Optional[str] = None
+    format_string: Optional[str] = None,
+    console_only: bool = False
 ) -> logging.Logger:
     """
     Set up a logger with both file and console handlers
     
     Args:
         logger_name: Name of the logger
-        log_file_name: Name of the log file (e.g., 'inventory_sync.log')
+        log_file_name: Name of the log file (e.g., 'inventory_sync.log'), optional if console_only=True
         log_level: Logging level (default: logging.INFO)
         format_string: Custom format string (optional)
+        console_only: If True, only create console handler (no file logging)
     
     Returns:
         Configured logger instance
     """
-    # Get project root directory (3 levels up from shared/)
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    logs_dir = os.path.join(project_root, 'logs')
-    
-    # Create logs directory if it doesn't exist
-    os.makedirs(logs_dir, exist_ok=True)
-    
-    # Set up log file path
-    log_file_path = os.path.join(logs_dir, log_file_name)
+    # Set up log file path only if not console_only
+    log_file_path = None
+    if not console_only and log_file_name:
+        # Get project root directory (3 levels up from shared/)
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        logs_dir = os.path.join(project_root, 'logs')
+        
+        # Create logs directory if it doesn't exist
+        os.makedirs(logs_dir, exist_ok=True)
+        
+        # Set up log file path
+        log_file_path = os.path.join(logs_dir, log_file_name)
     
     # Default format string
     if format_string is None:
@@ -138,14 +143,15 @@ def setup_logger(
     console_handler.setLevel(log_level)
     console_handler.setFormatter(formatter)
     
-    # Create file handler with UTF-8 encoding
-    file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
-    file_handler.setLevel(log_level)
-    file_handler.setFormatter(formatter)
-    
-    # Add handlers to logger
+    # Add console handler to logger
     logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
+    
+    # Create file handler only if not console_only
+    if not console_only and log_file_path:
+        file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
     
     return logger
 

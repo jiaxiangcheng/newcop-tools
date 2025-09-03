@@ -1,0 +1,1 @@
+"""Customer Marketing Sync module for synchronizing customer marketing preferences to metafields"""

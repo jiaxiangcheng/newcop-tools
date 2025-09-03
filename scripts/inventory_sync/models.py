@@ -1,12 +1,15 @@
 from pydantic import BaseModel, Field
 from typing import Dict, Optional, List
 from datetime import datetime
+from decimal import Decimal
 
 class VariantInventory(BaseModel):
     """Model for tracking variant inventory state"""
     variant_id: int
     product_id: int
     inventory_quantity: int
+    price: Optional[str] = None  # Store as string to match Shopify API
+    compare_at_price: Optional[str] = None  # Store as string to match Shopify API
     last_updated: datetime
     title: Optional[str] = None
     sku: Optional[str] = None
@@ -31,8 +34,13 @@ class VariantUpdate(BaseModel):
     product_id: int
     old_quantity: Optional[int] = None
     new_quantity: int
+    old_price: Optional[str] = None
+    new_price: Optional[str] = None
+    old_compare_at_price: Optional[str] = None
+    new_compare_at_price: Optional[str] = None
     metafield_namespace: str = "custom"
     metafield_key: str = "inventory"
+    updated_fields: List[str] = Field(default_factory=list)  # Track which fields were updated
 
 class SyncResult(BaseModel):
     """Results of inventory sync operation"""
@@ -48,21 +56,47 @@ class SyncResult(BaseModel):
     sync_timestamp: datetime = Field(default_factory=datetime.now)
 
 class InventoryChangeDetection(BaseModel):
-    """Model for detecting inventory changes"""
+    """Model for detecting inventory and price changes"""
     variant_id: int
     product_id: int
     product_title: str
     variant_title: Optional[str] = None
     old_quantity: Optional[int] = None
     new_quantity: int
+    old_price: Optional[str] = None
+    new_price: Optional[str] = None
+    old_compare_at_price: Optional[str] = None
+    new_compare_at_price: Optional[str] = None
     has_changed: bool
+    changed_fields: List[str] = Field(default_factory=list)  # Track which fields changed
     
     @property
     def change_description(self) -> str:
         """Generate a human-readable change description"""
-        if self.old_quantity is None:
-            return f"New variant: {self.new_quantity}"
-        elif self.old_quantity != self.new_quantity:
-            return f"{self.old_quantity} → {self.new_quantity}"
-        else:
+        if not self.has_changed:
             return "No change"
+        
+        changes = []
+        
+        # Inventory change
+        if "inventory" in self.changed_fields:
+            if self.old_quantity is None:
+                changes.append(f"New inventory: {self.new_quantity}")
+            else:
+                changes.append(f"Inventory: {self.old_quantity} → {self.new_quantity}")
+        
+        # Price change
+        if "price" in self.changed_fields:
+            if self.old_price is None:
+                changes.append(f"New price: €{self.new_price}")
+            else:
+                changes.append(f"Price: €{self.old_price} → €{self.new_price}")
+        
+        # Compare at price change
+        if "compare_at_price" in self.changed_fields:
+            if self.old_compare_at_price is None:
+                changes.append(f"New compare price: €{self.new_compare_at_price}")
+            else:
+                changes.append(f"Compare price: €{self.old_compare_at_price} → €{self.new_compare_at_price}")
+        
+        return "; ".join(changes) if changes else "No change"

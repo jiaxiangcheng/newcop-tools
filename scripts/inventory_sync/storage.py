@@ -17,6 +17,9 @@ from scripts.inventory_sync.models import (
 
 logger = logging.getLogger(__name__)
 
+# Ensure this logger inherits from the parent logger and shows INFO messages
+logger.setLevel(logging.INFO)
+
 class InventoryStorage:
     """Manages local JSON cache for inventory state"""
     
@@ -110,9 +113,20 @@ class InventoryStorage:
         Returns:
             List of inventory changes detected
         """
+        import time
+        start_time = time.time()
         changes = []
         
-        for product in current_products:
+        total_variants = sum(len(product.get('variants', [])) for product in current_products)
+        logger.info(f"Starting change detection for {len(current_products)} products with {total_variants} variants...")
+        
+        processed_products = 0
+        processed_variants = 0
+        
+        for product_idx, product in enumerate(current_products):
+            if product_idx % 100 == 0 and product_idx > 0:
+                elapsed = time.time() - start_time
+                logger.info(f"Progress: {product_idx}/{len(current_products)} products ({processed_variants}/{total_variants} variants) - {elapsed:.1f}s elapsed")
             product_id = str(product.get('id'))
             product_title = product.get('title', 'Unknown Product')
             variants = product.get('variants', [])
@@ -121,32 +135,65 @@ class InventoryStorage:
             cached_product = cached_inventory.products.get(product_id)
             
             for variant in variants:
-                variant_id = variant.get('id')
-                current_quantity = variant.get('inventory_quantity', 0)
-                variant_title = variant.get('title')
-                
-                # Get cached variant inventory
-                old_quantity = None
-                if cached_product and str(variant_id) in cached_product.variants:
-                    old_quantity = cached_product.variants[str(variant_id)].inventory_quantity
-                
-                # Determine if this variant has changed
-                has_changed = old_quantity != current_quantity
-                
-                change_detection = InventoryChangeDetection(
-                    variant_id=variant_id,
-                    product_id=int(product_id),
-                    product_title=product_title,
-                    variant_title=variant_title,
-                    old_quantity=old_quantity,
-                    new_quantity=current_quantity,
-                    has_changed=has_changed
-                )
-                
-                changes.append(change_detection)
+                try:
+                    variant_id = variant.get('id')
+                    current_quantity = variant.get('inventory_quantity', 0)
+                    variant_title = variant.get('title')
+                    
+                    # Get cached variant data
+                    old_quantity = None
+                    old_price = None
+                    old_compare_at_price = None
+                    
+                    if cached_product and str(variant_id) in cached_product.variants:
+                        cached_variant = cached_product.variants[str(variant_id)]
+                        old_quantity = cached_variant.inventory_quantity
+                        old_price = cached_variant.price
+                        old_compare_at_price = cached_variant.compare_at_price
+                    
+                    # Get current prices
+                    current_price = variant.get('price')
+                    current_compare_at_price = variant.get('compare_at_price')
+                    
+                    # Determine what has changed
+                    changed_fields = []
+                    if old_quantity != current_quantity:
+                        changed_fields.append('inventory')
+                    if old_price != current_price:
+                        changed_fields.append('price')
+                    if old_compare_at_price != current_compare_at_price:
+                        changed_fields.append('compare_at_price')
+                    
+                    has_changed = len(changed_fields) > 0
+                    
+                    change_detection = InventoryChangeDetection(
+                        variant_id=variant_id,
+                        product_id=int(product_id),
+                        product_title=product_title,
+                        variant_title=variant_title,
+                        old_quantity=old_quantity,
+                        new_quantity=current_quantity,
+                        old_price=old_price,
+                        new_price=current_price,
+                        old_compare_at_price=old_compare_at_price,
+                        new_compare_at_price=current_compare_at_price,
+                        has_changed=has_changed,
+                        changed_fields=changed_fields
+                    )
+                    
+                    changes.append(change_detection)
+                    processed_variants += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing variant {variant_id} in product {product_title}: {e}")
+                    continue
+            
+            processed_products += 1
         
         # Log summary
+        total_time = time.time() - start_time
         changed_variants = [c for c in changes if c.has_changed]
+        logger.info(f"Change detection completed in {total_time:.1f}s")
         logger.info(f"Detected {len(changed_variants)} variants with inventory changes out of {len(changes)} total variants")
         
         return changes
@@ -185,6 +232,8 @@ class InventoryStorage:
                     variant_id=int(variant_id),
                     product_id=int(product_id),
                     inventory_quantity=inventory_quantity,
+                    price=variant.get('price'),
+                    compare_at_price=variant.get('compare_at_price'),
                     last_updated=now,
                     title=variant.get('title'),
                     sku=variant.get('sku')

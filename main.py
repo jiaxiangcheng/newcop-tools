@@ -24,11 +24,13 @@ def show_banner():
 
 def show_menu():
     inventory_sync_interval_hours = os.getenv("INVENTORY_SYNC_INTERVAL_HOURS", "6")
+    customer_marketing_sync_interval_hours = os.getenv("CUSTOMER_MARKETING_SYNC_INTERVAL_HOURS", "6")
     """Display the main menu options"""
     print("\n📋 Available Scripts:")
     print("1. 🔄 Dynamic Collections - Auto-update Shopify collections based on Airtable sales data")
     print(f"2. 📦 Inventory Sync - Sync inventory quantities to variant metafields every {inventory_sync_interval_hours} hours")
-    print("3. 🚀 More scripts coming soon...")
+    print(f"3. 👥 Customer Marketing Sync - Sync customer marketing preferences to metafields every {customer_marketing_sync_interval_hours} hours")
+    print("4. 🚀 More scripts coming soon...")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -158,6 +160,69 @@ def run_inventory_sync() -> bool:
         print(f"❌ Unexpected error running inventory sync: {e}")
         return False
 
+def run_customer_marketing_sync() -> bool:
+    """Run the customer marketing sync script with user mode selection"""
+    try:
+        print("\n👥 Starting Customer Marketing Sync Script...")
+        print("=" * 60)
+        
+        # Ask user for execution mode
+        print("Select execution mode:")
+        print("1. 🔧 Manual Sync (run once)")
+        print("2. 🔄 Scheduled Mode (run every 6 hours)")
+        print("3. 🧪 Dry Run (analyze changes only)")
+        print("0. ↩️  Return to main menu")
+        
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+                
+                if mode_choice == "0":
+                    return True  # Return to main menu
+                elif mode_choice == "1":
+                    # Manual sync
+                    from scripts.customer_marketing_sync.main import run_customer_marketing_sync
+                    success = run_customer_marketing_sync(mode="manual", dry_run=False)
+                    break
+                elif mode_choice == "2":
+                    # Scheduled mode
+                    print("\n⚠️  Scheduled mode will run continuously. Press Ctrl+C to stop.")
+                    confirm = input("Continue? (y/N): ").strip().lower()
+                    if confirm in ['y', 'yes']:
+                        from scripts.customer_marketing_sync.main import run_customer_marketing_sync
+                        success = run_customer_marketing_sync(mode="scheduled", dry_run=False)
+                    else:
+                        success = True  # User cancelled
+                    break
+                elif mode_choice == "3":
+                    # Dry run
+                    from scripts.customer_marketing_sync.main import run_customer_marketing_sync
+                    success = run_customer_marketing_sync(mode="manual", dry_run=True)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                    continue
+                    
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+        
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Customer Marketing Sync Script completed successfully!")
+        else:
+            print("❌ Customer Marketing Sync Script completed with errors.")
+        
+        return success
+        
+    except ImportError as e:
+        print(f"❌ Error importing customer marketing sync script: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install APScheduler")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running customer marketing sync: {e}")
+        return False
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -189,6 +254,7 @@ def main():
     script_functions: Dict[str, Callable] = {
         "1": run_dynamic_collections,
         "2": run_inventory_sync,
+        "3": run_customer_marketing_sync,
     }
     
     # Check if we're in a virtual environment

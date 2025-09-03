@@ -22,6 +22,9 @@ from scripts.inventory_sync.storage import InventoryStorage
 
 logger = logging.getLogger(__name__)
 
+# Ensure this logger inherits from the parent logger and shows INFO messages
+logger.setLevel(logging.INFO)
+
 class FailedVariantUpdate:
     """Represents a failed variant update for retry"""
     def __init__(self, variant_change: 'InventoryChangeDetection', attempt: int = 1, error: str = ""):
@@ -105,7 +108,10 @@ class InventoryManager:
         self.shopify_client = shopify_client
         self.storage = storage or InventoryStorage()
         self.namespace = "custom"
-        self.metafield_key = "inventory"
+        # Define metafield keys for different data
+        self.inventory_key = "inventory"
+        self.price_key = "price"
+        self.compare_price_key = "compare_price"
         self.retry_queue = RetryQueue(max_attempts=3)
     
     def sync_inventory_to_metafields(self, dry_run: bool = False) -> SyncResult:
@@ -173,8 +179,8 @@ class InventoryManager:
                 sync_result.execution_time_seconds = time.time() - start_time
                 return sync_result
             
-            # Step 4: Update variant metafields (concurrently per product)
-            logger.info("⚡ Updating variant metafields...")
+            # Step 4: Update variant metafields for inventory, price, and compare_price (concurrently per product)
+            logger.info("⚡ Updating variant metafields for inventory, price, and compare_price...")
             updated_variants = self._update_variants_with_concurrency_and_retry(variants_to_update)
             
             # Update sync result with actual updates
@@ -216,8 +222,17 @@ class InventoryManager:
                     product_title = matching_change.product_title if matching_change else "Unknown Product"
                     logger.info(f"  [{i:2d}] 📦 {product_title}")
                     logger.info(f"       🔸 Variant ID: {update.variant_id}")
-                    logger.info(f"       📊 Inventory: {update.old_quantity} → {update.new_quantity}")
-                    logger.info(f"       🏷️  Metafield: {update.metafield_namespace}.{update.metafield_key}")
+                    
+                    # Show details for each field that was updated
+                    for field in update.updated_fields:
+                        if field == 'inventory':
+                            logger.info(f"       📊 Inventory: {update.old_quantity} → {update.new_quantity}")
+                        elif field == 'price':
+                            logger.info(f"       💰 Price: €{update.old_price} → €{update.new_price}")
+                        elif field == 'compare_at_price':
+                            logger.info(f"       🏷️  Compare Price: €{update.old_compare_at_price} → €{update.new_compare_at_price}")
+                    
+                    logger.info(f"       🏷️  Updated metafields: {', '.join([f'{self.namespace}.{field}' for field in update.updated_fields])}")
             
             # Log summary
             logger.info("📋 Inventory sync completed!")
@@ -307,7 +322,7 @@ class InventoryManager:
                     if variant_update:
                         logger.info(f"    ✅ Updated variant {variant_change.variant_id}: {variant_change.change_description}")
                         logger.debug(f"         Product: {variant_change.product_title}")
-                        logger.debug(f"         Metafield: {self.namespace}.{self.metafield_key} = {variant_change.new_quantity}")
+                        logger.debug(f"         Updated fields: {', '.join(variant_change.changed_fields)}")
                     else:
                         logger.warning(f"    ❌ Failed to update variant {variant_change.variant_id}: {error_message or 'Unknown error'}")
                         logger.warning(f"         Product: {variant_change.product_title}")
@@ -328,30 +343,63 @@ class InventoryManager:
         return updates
     
     def _update_single_variant_metafield(self, variant_change: InventoryChangeDetection) -> Tuple[Optional[VariantUpdate], Optional[str]]:
-        """Update metafield for a single variant"""
+        """Update metafields for a single variant (inventory, price, compare_price)"""
+        updated_fields = []
+        errors = []
+        
         try:
-            success = self.shopify_client.update_variant_metafield(
-                variant_id=variant_change.variant_id,
-                namespace=self.namespace,
-                key=self.metafield_key,
-                value=str(variant_change.new_quantity)
-            )
+            # Update each changed field
+            for field in variant_change.changed_fields:
+                field_success = False
+                
+                if field == 'inventory':
+                    field_success = self.shopify_client.update_variant_metafield(
+                        variant_id=variant_change.variant_id,
+                        namespace=self.namespace,
+                        key=self.inventory_key,
+                        value=str(variant_change.new_quantity)
+                    )
+                elif field == 'price':
+                    field_success = self.shopify_client.update_variant_metafield(
+                        variant_id=variant_change.variant_id,
+                        namespace=self.namespace,
+                        key=self.price_key,
+                        value=str(variant_change.new_price) if variant_change.new_price else "0.00"
+                    )
+                elif field == 'compare_at_price':
+                    field_success = self.shopify_client.update_variant_metafield(
+                        variant_id=variant_change.variant_id,
+                        namespace=self.namespace,
+                        key=self.compare_price_key,
+                        value=str(variant_change.new_compare_at_price) if variant_change.new_compare_at_price else "0.00"
+                    )
+                
+                if field_success:
+                    updated_fields.append(field)
+                else:
+                    errors.append(f"{field} update failed")
             
-            if success:
+            if updated_fields:
                 return VariantUpdate(
                     variant_id=variant_change.variant_id,
                     product_id=variant_change.product_id,
                     old_quantity=variant_change.old_quantity,
                     new_quantity=variant_change.new_quantity,
+                    old_price=variant_change.old_price,
+                    new_price=variant_change.new_price,
+                    old_compare_at_price=variant_change.old_compare_at_price,
+                    new_compare_at_price=variant_change.new_compare_at_price,
                     metafield_namespace=self.namespace,
-                    metafield_key=self.metafield_key
+                    metafield_key=self.inventory_key,  # Keep for backward compatibility
+                    updated_fields=updated_fields
                 ), None
             else:
-                return None, "Metafield update returned False"
+                error_msg = "; ".join(errors) if errors else "All metafield updates failed"
+                return None, error_msg
                 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Exception updating variant {variant_change.variant_id} metafield: {error_msg}")
+            logger.error(f"Exception updating variant {variant_change.variant_id} metafields: {error_msg}")
             return None, error_msg
     
     def get_sync_status(self) -> Dict[str, Any]:
@@ -376,7 +424,9 @@ class InventoryManager:
                 "retry_queue_size": self.retry_queue.size(),
                 "sync_configuration": {
                     "metafield_namespace": self.namespace,
-                    "metafield_key": self.metafield_key,
+                    "inventory_key": self.inventory_key,
+                    "price_key": self.price_key,
+                    "compare_price_key": self.compare_price_key,
                     "max_retry_attempts": self.retry_queue.max_attempts
                 }
             }
@@ -438,7 +488,11 @@ class InventoryManager:
             
             # Add price
             if variant.get('price'):
-                parts.append(f"Price: ${variant['price']}")
+                parts.append(f"Price: €{variant['price']}")
+            
+            # Add compare at price
+            if variant.get('compare_at_price'):
+                parts.append(f"Compare Price: €{variant['compare_at_price']}")
             
             # Add current inventory quantity
             if 'inventory_quantity' in variant:

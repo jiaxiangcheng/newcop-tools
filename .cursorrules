@@ -1,17 +1,20 @@
 # CLAUDE.md
 
-All code comments should be in English.
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-This is a Dynamic Collection Manager that automates Shopify collection management based on Airtable sales data. The system has been redesigned to support multiple collections with dynamic job configurations via Shopify metafields. Each collection can have its own job settings stored in a `custom.job_settings` metafield, enabling flexible, scalable automation across multiple collections.
+This is a comprehensive Shopify automation system that includes multiple specialized modules:
+
+1. **Dynamic Collection Manager**: Automates Shopify collection management based on Airtable sales data with dynamic job configurations
+2. **Inventory Sync**: Synchronizes product variant inventory quantities to metafields with change detection
+3. **Customer Marketing Sync**: Synchronizes customer marketing subscription preferences to metafields
+
+Each module follows a consistent architecture with scheduling capabilities, change detection, and comprehensive logging.
 
 ## Core Commands
 
 ### Environment Setup
-
 ```bash
 # Create and activate virtual environment
 python3 -m venv venv
@@ -22,7 +25,6 @@ pip install -r requirements.txt
 ```
 
 ### Development and Testing
-
 ```bash
 # Run main CLI launcher (recommended)
 python main.py
@@ -37,6 +39,11 @@ python scripts/inventory_sync/main.py --mode manual         # One-time sync
 python scripts/inventory_sync/main.py --mode scheduled      # Continuous mode (every 2 hours)
 python scripts/inventory_sync/main.py --dry-run             # Analysis only
 
+# Run customer marketing sync directly
+python scripts/customer_marketing_sync/main.py --mode manual         # One-time sync
+python scripts/customer_marketing_sync/main.py --mode scheduled      # Continuous mode (every 6 hours)
+python scripts/customer_marketing_sync/main.py --dry-run             # Analysis only
+
 # Legacy test scripts (if they exist)
 python test_dynamic_collections.py
 python test_airtable.py
@@ -44,7 +51,6 @@ python check_shopify_ids.py
 ```
 
 ### Virtual Environment Management
-
 ```bash
 # Activate environment
 source venv/bin/activate
@@ -58,7 +64,6 @@ deactivate
 The system follows a modular, extensible architecture supporting multiple job types and collections:
 
 ### Project Structure
-
 ```
 newcop-backend-jobs/
 ├── main.py                           # Main CLI launcher
@@ -76,22 +81,28 @@ newcop-backend-jobs/
 │   │   ├── inventory_manager.py      # Core sync logic with concurrency
 │   │   ├── models.py                 # Data models for inventory tracking
 │   │   └── storage.py                # Local JSON cache management
+│   ├── customer_marketing_sync/      # Customer marketing synchronization functionality
+│   │   ├── main.py                   # Customer marketing sync orchestrator with scheduler
+│   │   ├── customer_manager.py       # Core sync logic with concurrency and retry
+│   │   ├── models.py                 # Data models for customer marketing tracking
+│   │   └── storage.py                # Local JSON cache management
 │   └── [future_scripts]/             # Additional script modules
 ├── shared/                           # Shared utilities
 │   ├── airtable_client.py           # Airtable API client
-│   ├── shopify_client.py            # Shopify API client (extended with variant methods)
+│   ├── shopify_client.py            # Shopify API client (extended with variant and customer methods)
 │   └── utils.py                     # Common utilities
 ├── data/                             # Data storage
-│   └── inventory_cache.json         # Local inventory state cache
+│   ├── inventory_cache.json         # Local inventory state cache
+│   └── customer_marketing_cache.json # Local customer marketing state cache
 └── logs/
     ├── dynamic_collection.log       # Dynamic collections logs
-    └── inventory_sync.log            # Inventory sync logs
+    ├── inventory_sync.log            # Inventory sync logs
+    └── customer_marketing_sync.log   # Customer marketing sync logs
 ```
 
 ### Core Components
 
 #### Dynamic Collections
-
 - **Main CLI Launcher** (`main.py`): Centralized entry point with menu system
 - **DynamicCollectionManager** (`scripts/dynamic_collections/main.py`): Orchestrates discovery and execution of multiple collection jobs
 - **JobExecutorFactory** (`scripts/dynamic_collections/job_executor.py`): Creates appropriate job executors based on job type
@@ -100,21 +111,23 @@ newcop-backend-jobs/
 - **Data Models** (`scripts/dynamic_collections/models.py`): Pydantic models for configuration validation and type safety
 
 #### Inventory Synchronization
-
 - **InventorySyncOrchestrator** (`scripts/inventory_sync/main.py`): Main orchestrator with APScheduler for 2-hour intervals
 - **InventoryManager** (`scripts/inventory_sync/inventory_manager.py`): Core sync logic with concurrent variant updates
 - **InventoryStorage** (`scripts/inventory_sync/storage.py`): Local JSON cache management with change detection
 - **Inventory Models** (`scripts/inventory_sync/models.py`): Data models for inventory tracking and sync results
 
-#### Shared Components
+#### Customer Marketing Synchronization
+- **CustomerMarketingSyncOrchestrator** (`scripts/customer_marketing_sync/main.py`): Main orchestrator with APScheduler for 6-hour intervals
+- **CustomerManager** (`scripts/customer_marketing_sync/customer_manager.py`): Core sync logic with concurrent customer updates
+- **CustomerMarketingStorage** (`scripts/customer_marketing_sync/storage.py`): Local JSON cache management with change detection
+- **Marketing Models** (`scripts/customer_marketing_sync/models.py`): Data models for customer marketing tracking and sync results
 
-- **ShopifyClient** (`shared/shopify_client.py`): Manages Shopify API interactions, collections, metafields, and variant updates
+#### Shared Components
+- **ShopifyClient** (`shared/shopify_client.py`): Manages Shopify API interactions, collections, metafields, variant updates, and customer operations
 - **AirtableClient** (`shared/airtable_client.py`): Handles Airtable API interactions with pagination support
 
 ### Dynamic Configuration System
-
 Collections with automation jobs are identified by:
-
 1. **Collection Naming**: Collections start with "Auto -" prefix for efficient discovery
 2. **Metafield Configuration**: Each collection has a `custom.job_settings` metafield containing:
    ```json
@@ -129,21 +142,11 @@ Collections with automation jobs are identified by:
      "MIN_QUARTERLY_SALES": "5",
      "EXCLUDED_TAGS": ["retail"],
      "INCLUDED_TAGS": null,
-     "BRAND_KEYWORDS": [
-       "nike",
-       "air jordan",
-       "adidas",
-       "yeezy",
-       "new balance",
-       "asics",
-       "puma",
-       "pop mart"
-     ]
+     "BRAND_KEYWORDS": ["nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma", "pop mart"]
    }
    ```
 
 ### Data Flow
-
 1. **Discovery**: System scans all collections starting with "Auto -" prefix
 2. **Configuration**: Parses `custom.job_settings` metafield for each collection
 3. **Validation**: Validates job settings against appropriate Pydantic models
@@ -151,13 +154,10 @@ Collections with automation jobs are identified by:
 5. **Reporting**: Provides detailed execution results and status for all collections
 
 ### Supported Job Types
-
 - **getTopResellProducts**: Fetches Airtable sales data, filters products, and updates collection
 
 ### Key Business Rules (getTopResellProducts)
-
 All filtering criteria are now **configurable per collection** via metafields:
-
 - **Brand Keywords**: Configurable list (default: nike, air jordan, adidas, yeezy, new balance, asics, puma, pop mart)
 - **Excluded Tags**: Configurable list of tags to exclude (can be null for no exclusions)
 - **Included Tags**: Configurable list of required tags (can be null for no requirements)
@@ -167,33 +167,27 @@ All filtering criteria are now **configurable per collection** via metafields:
 ## Configuration
 
 ### Environment Variables
-
 Required environment variables (stored in `.env` file):
-
 - `AIRTABLE_TOKEN`: Airtable Personal Access Token
 - `SHOPIFY_ADMIN_TOKEN`: Shopify Admin API Token
 - `SHOPIFY_SHOP_DOMAIN`: Shopify shop domain (e.g., "yourshop.myshopify.com")
 
 ### Dynamic Job Configuration
-
 Each collection's job settings are stored in Shopify metafields:
-
 - **Namespace**: `custom`
 - **Key**: `job_settings`
 - **Type**: JSON
 - **Content**: Job-specific configuration parameters
 
 ### Collection Identification
-
 - Collections with automation must start with "Auto -" prefix
 - This naming convention enables efficient discovery without scanning all collections
 
 ## Field Mapping
 
 Critical Airtable to model field mappings:
-
 - `Product Title` → `product_name`
-- `Vendor` → `brand`
+- `Vendor` → `brand` 
 - `Tags` → `tags` (comma-separated string to list)
 - `∞ Shopify Id` → `shopify_id` (enables direct product updates)
 - `Ventas trimestre` → `quarterly_sales`
@@ -217,7 +211,6 @@ Critical Airtable to model field mappings:
 To add a new job type (e.g., "seasonalProducts"):
 
 1. **Define Job Type** in `models.py`:
-
    ```python
    class JobType(str, Enum):
        GET_TOP_RESELL_PRODUCTS = "getTopResellProducts"
@@ -225,13 +218,12 @@ To add a new job type (e.g., "seasonalProducts"):
    ```
 
 2. **Create Job Settings Model** in `models.py`:
-
    ```python
    class SeasonalProductsJobSettings(BaseJobSettings):
        SEASON_START_DATE: str
        SEASON_END_DATE: str
        PRODUCT_CATEGORIES: List[str]
-
+       
        @validator('jobType')
        def validate_job_type(cls, v):
            if v != JobType.SEASONAL_PRODUCTS:
@@ -240,19 +232,17 @@ To add a new job type (e.g., "seasonalProducts"):
    ```
 
 3. **Implement Job Executor** in `job_executor.py`:
-
    ```python
    class SeasonalProductsJobExecutor(JobExecutor):
        def get_supported_job_type(self) -> str:
            return "seasonalProducts"
-
+       
        def execute(self, collection_with_settings: CollectionWithJobSettings) -> Dict[str, Any]:
            # Implement seasonal products logic
            pass
    ```
 
 4. **Register Executor** in `JobExecutorFactory._register_executors()`:
-
    ```python
    executors = [
        TopResellProductsJobExecutor(self.airtable_token, self.shopify_client),
@@ -267,7 +257,6 @@ To add a new job type (e.g., "seasonalProducts"):
    ```
 
 ### Job Settings Example for New Type
-
 ```json
 {
   "jobType": "seasonalProducts",
@@ -294,7 +283,7 @@ The system uses a **"clear and rebuild"** approach for collection updates:
      1. Example Product
      2. Another Product
    ```
-5. **Collection Update**:
+5. **Collection Update**: 
    - Remove ALL existing products from collection
    - Add filtered products in sales-ranked order (highest quarterly sales first)
 6. **Parallel Execution**: Process multiple collections concurrently
@@ -316,13 +305,11 @@ The inventory sync system automatically synchronizes Shopify product variant inv
 ## Key Features
 
 ### Change Detection Optimization
-
 - **Local JSON Cache**: Stores previous inventory states to detect changes
 - **Smart Updates**: Only updates variants with inventory changes
 - **Atomic File Operations**: Ensures cache integrity with atomic writes
 
 ### Concurrent Processing
-
 - **Per-Product Concurrency**: Variants within each product updated concurrently
 - **Sequential Products**: Products processed sequentially to avoid rate limits
 - **Configurable Workers**: Limits concurrent requests (max 5 per product)
@@ -330,19 +317,16 @@ The inventory sync system automatically synchronizes Shopify product variant inv
 ### Multiple Execution Modes
 
 #### Dynamic Collections
-
 - **Manual Sync**: One-time collection update
 - **Scheduled Mode**: Continuous 15-day interval execution (configurable)
 - **Dry Run**: Analysis mode showing changes without updating collections
 
 #### Inventory Sync
-
 - **Manual Sync**: One-time synchronization
 - **Scheduled Mode**: Continuous 2-hour interval execution
 - **Dry Run**: Analysis mode showing changes without making updates
 
 ### Comprehensive Monitoring
-
 - **Progress Tracking**: Real-time progress indicators during sync
 - **Detailed Logging**: Separate log file (`logs/inventory_sync.log`)
 - **Error Isolation**: Individual variant failures don't stop the entire process
@@ -353,30 +337,32 @@ The inventory sync system automatically synchronizes Shopify product variant inv
 ### Environment Variables
 
 #### Core Configuration
-
 - `AIRTABLE_TOKEN`: Airtable Personal Access Token
 - `SHOPIFY_ADMIN_TOKEN`: Shopify Admin API Token
 - `SHOPIFY_SHOP_DOMAIN`: Shopify shop domain (e.g., "yourshop.myshopify.com")
 
 #### Dynamic Collections Scheduling
-
 - `DYNAMIC_COLLECTIONS_INTERVAL_DAYS`: Sync interval (default: 15 days)
 
 #### Inventory Sync Configuration
-
 - `INVENTORY_SYNC_INTERVAL_HOURS`: Sync interval (default: 2 hours)
 - `INVENTORY_SYNC_DRY_RUN`: Enable dry-run mode (default: false)
 
-### Local Data Storage
+#### Customer Marketing Sync Configuration
+- `CUSTOMER_MARKETING_SYNC_INTERVAL_HOURS`: Sync interval (default: 6 hours)
+- `CUSTOMER_MARKETING_SYNC_DRY_RUN`: Enable dry-run mode (default: false)
 
-- **Cache File**: `data/inventory_cache.json`
-- **Structure**: Product/variant inventory history with timestamps
-- **Automatic Cleanup**: Cache updates automatically with each sync
+### Local Data Storage
+- **Inventory Cache File**: `data/inventory_cache.json`
+  - **Structure**: Product/variant inventory history with timestamps
+  - **Automatic Cleanup**: Cache updates automatically with each sync
+- **Customer Marketing Cache File**: `data/customer_marketing_cache.json`
+  - **Structure**: Customer marketing subscription states with timestamps
+  - **Automatic Cleanup**: Cache updates automatically with each sync
 
 ## Usage
 
 ### CLI Integration
-
 ```bash
 python main.py
 
@@ -386,15 +372,20 @@ python main.py
 #   2. Scheduled Mode (run every 15 days)
 #   3. Dry Run (analyze changes only)
 
-# Option 2: 📦 Inventory Sync
+# Option 2: 📦 Inventory Sync  
 # Choose execution mode:
 #   1. Manual Sync (run once)
 #   2. Scheduled Mode (run every 2 hours)
 #   3. Dry Run (analyze changes only)
+
+# Option 3: 👥 Customer Marketing Sync
+# Choose execution mode:
+#   1. Manual Sync (run once)
+#   2. Scheduled Mode (run every 6 hours)
+#   3. Dry Run (analyze changes only)
 ```
 
 ### Direct Execution
-
 ```bash
 # Dynamic Collections
 python scripts/dynamic_collections/main.py --mode manual     # One-time sync
@@ -405,24 +396,42 @@ python scripts/dynamic_collections/main.py --dry-run         # Analysis only
 python scripts/inventory_sync/main.py --mode manual          # One-time sync
 python scripts/inventory_sync/main.py --mode scheduled       # Every 2 hours
 python scripts/inventory_sync/main.py --dry-run              # Analysis only
+
+# Customer Marketing Sync
+python scripts/customer_marketing_sync/main.py --mode manual          # One-time sync
+python scripts/customer_marketing_sync/main.py --mode scheduled       # Every 6 hours
+python scripts/customer_marketing_sync/main.py --dry-run              # Analysis only
 ```
 
 ## Metafield Configuration
 
-### Target Metafield
-
+### Inventory Sync Target Metafield
 - **Namespace**: `custom`
 - **Key**: `inventory`
 - **Type**: `single_line_text_field`
 - **Value**: Current inventory quantity as string
 
-### Example Metafield Value
+### Customer Marketing Sync Target Metafield
+- **Namespace**: `custom`
+- **Key**: `accepts_marketing`
+- **Type**: `single_line_text_field`
+- **Value**: Customer marketing preference as "true" or "false"
 
+### Example Metafield Values
 ```json
+// Inventory metafield
 {
   "namespace": "custom",
-  "key": "inventory",
+  "key": "inventory", 
   "value": "42",
+  "type": "single_line_text_field"
+}
+
+// Customer marketing metafield
+{
+  "namespace": "custom",
+  "key": "accepts_marketing",
+  "value": "true",
   "type": "single_line_text_field"
 }
 ```
@@ -430,21 +439,18 @@ python scripts/inventory_sync/main.py --dry-run              # Analysis only
 ## Performance & Optimization
 
 ### API Efficiency
-
 - **Change Detection**: Avoids unnecessary API calls
 - **Batch Processing**: Handles large inventories efficiently
 - **Rate Limiting**: Built-in delays and retry logic
 - **Pagination Support**: Handles stores with thousands of products
 
 ### Local Caching
-
 - **Change Detection**: Only processes variants with inventory changes
 - **Fast Comparison**: JSON-based state comparison
 - **Minimal Storage**: Compact cache structure
 - **Atomic Updates**: Prevents cache corruption
 
 ### Concurrent Processing
-
 - **Product-Level**: Sequential processing to respect rate limits
 - **Variant-Level**: Concurrent updates within each product (max 5 workers)
 - **Error Isolation**: Failed variants don't affect others
@@ -452,13 +458,11 @@ python scripts/inventory_sync/main.py --dry-run              # Analysis only
 ## Error Handling
 
 ### Rate Limiting
-
 - **Automatic Retry**: Built-in retry logic for 429 responses
 - **Exponential Backoff**: Gradual delay increases
 - **Request Spacing**: Small delays between requests
 
 ### Failure Recovery
-
 - **Individual Isolation**: Single variant failures don't stop sync
 - **Comprehensive Logging**: Detailed error messages with context
 - **Graceful Degradation**: Continues processing remaining variants
@@ -467,7 +471,6 @@ python scripts/inventory_sync/main.py --dry-run              # Analysis only
 ## Troubleshooting
 
 ### Common Issues
-
 - **Missing Shopify IDs**: System will clearly list products without valid Shopify IDs
 - **Collection Count Mismatch**: Expected when some filtered products lack Shopify IDs
 - **API 404 Errors**: Usually indicates missing permissions or incorrect API version
@@ -476,18 +479,17 @@ python scripts/inventory_sync/main.py --dry-run              # Analysis only
 - **Permission Errors**: Ensure variant metafield write permissions
 
 ### Required Shopify Permissions
-
 - `read_products` and `write_products` (for collections access)
 - `read_product_listings` and `write_product_listings` (for collection_listings API)
 - `read_metaobjects` and `write_metaobjects` (for metafield access)
 - `read_inventory` (for inventory quantity access)
 - `write_variants` (for variant metafield updates)
+- `read_customers` and `write_customers` (for customer marketing sync and customer metafield updates)
 
 ## Logging
 
 Optimized logging system:
-
-- Console output for real-time monitoring during execution
+- Console output for real-time monitoring during execution  
 - File logging to `dynamic_collection.log` for persistence and debugging
 - Structured log messages with timestamps, component names, and log levels
 - Progress indicators for batch operations (🗑️ for removal, ➕ for addition)

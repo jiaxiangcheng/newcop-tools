@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Inventory Sync Script
+Customer Marketing Sync Script
 
-Automatically synchronizes Shopify product variant inventory quantities 
-to their custom.inventory metafields every 2 hours with change detection optimization.
+Automatically synchronizes Shopify customer email marketing subscription preferences 
+to their custom.accepts_marketing metafields with change detection optimization.
 
 Features:
-- Only updates variants with inventory changes
+- Only updates customers with marketing preference changes
 - Local JSON cache for change detection
-- Concurrent variant updates per product
+- Concurrent customer updates
 - Comprehensive logging and error handling
 - Manual and scheduled execution modes
 
@@ -34,20 +34,20 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from shared.shopify_client import ShopifyClient
 from shared.logger import setup_logger
-from scripts.inventory_sync.inventory_manager import InventoryManager
-from scripts.inventory_sync.storage import InventoryStorage
+from scripts.customer_marketing_sync.customer_manager import CustomerManager
+from scripts.customer_marketing_sync.storage import CustomerMarketingStorage
 
 # Load environment variables
 load_dotenv()
 
 # Set up logging
-logger = setup_logger('inventory_sync', 'inventory_sync.log')
+logger = setup_logger('customer_marketing_sync', 'customer_marketing_sync.log')
 
 # Also configure related loggers to use the same settings
 related_loggers = [
     'shared.shopify_client',
-    'scripts.inventory_sync.inventory_manager',
-    'scripts.inventory_sync.storage'
+    'scripts.customer_marketing_sync.customer_manager',
+    'scripts.customer_marketing_sync.storage'
 ]
 
 for logger_name in related_loggers:
@@ -57,8 +57,8 @@ for logger_name in related_loggers:
     for handler in logger.handlers:
         child_logger.addHandler(handler)
 
-class InventorySyncOrchestrator:
-    """Main orchestrator for inventory synchronization with scheduling capabilities"""
+class CustomerMarketingSyncOrchestrator:
+    """Main orchestrator for customer marketing synchronization with scheduling capabilities"""
     
     def __init__(self):
         # Configuration from environment variables
@@ -66,12 +66,12 @@ class InventorySyncOrchestrator:
         self.shopify_shop_domain = os.getenv("SHOPIFY_SHOP_DOMAIN")
         
         # Sync configuration
-        self.sync_interval_hours = int(os.getenv("INVENTORY_SYNC_INTERVAL_HOURS", "6"))
-        self.dry_run_mode = os.getenv("INVENTORY_SYNC_DRY_RUN", "false").lower() == "true"
+        self.sync_interval_hours = int(os.getenv("CUSTOMER_MARKETING_SYNC_INTERVAL_HOURS", "6"))
+        self.dry_run_mode = os.getenv("CUSTOMER_MARKETING_SYNC_DRY_RUN", "false").lower() == "true"
         
         # Initialize components
         self.shopify_client = None
-        self.inventory_manager = None
+        self.customer_manager = None
         self.storage = None
         self.scheduler = None
         
@@ -105,12 +105,13 @@ class InventorySyncOrchestrator:
         return True
     
     def initialize_components(self) -> bool:
-        """Initialize Shopify client, storage, and inventory manager"""
+        """Initialize Shopify client, storage, and customer manager"""
         try:
             # Initialize clients
             self.shopify_client = ShopifyClient(self.shopify_admin_token, self.shopify_shop_domain)
-            self.storage = InventoryStorage()
-            self.inventory_manager = InventoryManager(self.shopify_client, self.storage)
+            self.storage = CustomerMarketingStorage()
+            # Allow creating missing metafields by default to handle customers without metafield values
+            self.customer_manager = CustomerManager(self.shopify_client, self.storage, create_missing_metafields=True)
             
             logger.info("✅ Components initialized successfully")
             return True
@@ -120,7 +121,7 @@ class InventorySyncOrchestrator:
             return False
     
     def run_single_sync(self, dry_run: Optional[bool] = None) -> Dict[str, Any]:
-        """Run a single inventory synchronization"""
+        """Run a single customer marketing synchronization"""
         if self.sync_in_progress:
             logger.warning("⚠️  Sync already in progress, skipping...")
             return {"success": False, "message": "Sync already in progress"}
@@ -129,23 +130,21 @@ class InventorySyncOrchestrator:
             self.sync_in_progress = True
             sync_dry_run = dry_run if dry_run is not None else self.dry_run_mode
             
-            logger.info("🚀 Starting inventory synchronization...")
+            logger.info("🚀 Starting customer marketing synchronization...")
             if sync_dry_run:
                 logger.info("🧪 Running in DRY RUN mode - no changes will be made")
             
             # Run the sync
-            logger.info("FIRST STEP")
-            result = self.inventory_manager.sync_inventory_to_metafields(dry_run=sync_dry_run)
+            result = self.customer_manager.sync_customer_marketing_to_metafields(dry_run=sync_dry_run)
             
             # Log detailed results
             if result.success:
-                logger.info("✅ Inventory synchronization completed successfully!")
+                logger.info("✅ Customer marketing synchronization completed successfully!")
                 logger.info(f"📊 Results summary:")
-                logger.info(f"  - Products processed: {result.total_products_processed}")
-                logger.info(f"  - Variants checked: {result.total_variants_checked}")
-                logger.info(f"  - Variants updated: {result.variants_updated}")
-                logger.info(f"  - Variants failed: {result.variants_failed}")
-                logger.info(f"  - Products with changes: {result.products_with_changes}")
+                logger.info(f"  - Customers processed: {result.total_customers_processed}")
+                logger.info(f"  - Customers updated: {result.customers_updated}")
+                logger.info(f"  - Customers failed: {result.customers_failed}")
+                logger.info(f"  - Customers with changes: {result.customers_with_changes}")
                 logger.info(f"  - Execution time: {result.execution_time_seconds:.2f} seconds")
                 
                 if result.errors:
@@ -153,7 +152,7 @@ class InventorySyncOrchestrator:
                     for error in result.errors:
                         logger.warning(f"    - {error}")
             else:
-                logger.error("❌ Inventory synchronization failed!")
+                logger.error("❌ Customer marketing synchronization failed!")
                 if result.errors:
                     for error in result.errors:
                         logger.error(f"  💥 {error}")
@@ -191,12 +190,12 @@ class InventorySyncOrchestrator:
             
             self.scheduler = BlockingScheduler(executors=executors, job_defaults=job_defaults)
             
-            # Add the inventory sync job
+            # Add the customer marketing sync job
             self.scheduler.add_job(
                 func=self._scheduled_sync_job,
                 trigger=IntervalTrigger(hours=self.sync_interval_hours),
-                id='inventory_sync_job',
-                name=f'Inventory Sync (every {self.sync_interval_hours}h)',
+                id='customer_marketing_sync_job',
+                name=f'Customer Marketing Sync (every {self.sync_interval_hours}h)',
                 replace_existing=True
             )
             
@@ -220,14 +219,14 @@ class InventorySyncOrchestrator:
     def start_scheduled_mode(self):
         """Start the scheduler to run syncs automatically"""
         try:
-            logger.info("🔄 Starting scheduled inventory sync mode...")
+            logger.info("🔄 Starting scheduled customer marketing sync mode...")
             logger.info(f"📅 Will sync every {self.sync_interval_hours} hours")
             logger.info("⏹️  Press Ctrl+C to stop")
             
             self.is_running = True
             
             # Setup signal handlers for graceful shutdown
-            def signal_handler(_signum, _frame):
+            def signal_handler(signum, frame):
                 logger.info("\n⏹️  Shutdown signal received, stopping scheduler...")
                 self.stop_scheduler()
                 sys.exit(0)
@@ -261,7 +260,7 @@ class InventorySyncOrchestrator:
             logger.error(f"❌ Error stopping scheduler: {e}")
     
     def get_status(self) -> Dict[str, Any]:
-        """Get current status of the inventory sync system"""
+        """Get current status of the customer marketing sync system"""
         try:
             status = {
                 "is_running": self.is_running,
@@ -277,9 +276,9 @@ class InventorySyncOrchestrator:
                 } if self.scheduler else None
             }
             
-            # Add inventory manager status if available
-            if self.inventory_manager:
-                status["inventory_status"] = self.inventory_manager.get_sync_status()
+            # Add customer manager status if available
+            if self.customer_manager:
+                status["customer_status"] = self.customer_manager.get_sync_status()
             
             return status
             
@@ -287,9 +286,9 @@ class InventorySyncOrchestrator:
             logger.error(f"Error getting status: {e}")
             return {"error": str(e)}
 
-def run_inventory_sync(mode: str = "manual", dry_run: bool = False) -> bool:
+def run_customer_marketing_sync(mode: str = "manual", dry_run: bool = False) -> bool:
     """
-    Entry point for inventory sync script
+    Entry point for customer marketing sync script
     
     Args:
         mode: "manual" for one-time sync, "scheduled" for continuous mode
@@ -299,7 +298,7 @@ def run_inventory_sync(mode: str = "manual", dry_run: bool = False) -> bool:
         Boolean indicating success
     """
     try:
-        orchestrator = InventorySyncOrchestrator()
+        orchestrator = CustomerMarketingSyncOrchestrator()
         
         # Validate environment
         if not orchestrator.validate_environment():
@@ -333,7 +332,7 @@ if __name__ == "__main__":
     # Support command line arguments
     import argparse
     
-    parser = argparse.ArgumentParser(description='Shopify Inventory Sync Script')
+    parser = argparse.ArgumentParser(description='Shopify Customer Marketing Sync Script')
     parser.add_argument('--mode', choices=['manual', 'scheduled'], default='manual',
                       help='Execution mode (default: manual)')
     parser.add_argument('--dry-run', action='store_true',
@@ -341,5 +340,5 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    success = run_inventory_sync(mode=args.mode, dry_run=args.dry_run)
+    success = run_customer_marketing_sync(mode=args.mode, dry_run=args.dry_run)
     sys.exit(0 if success else 1)

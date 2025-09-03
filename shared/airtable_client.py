@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class AirtableClient:
     def __init__(self, token: str, base_id: str):
