@@ -66,7 +66,7 @@ class InventorySyncOrchestrator:
         self.shopify_shop_domain = os.getenv("SHOPIFY_SHOP_DOMAIN")
         
         # Sync configuration
-        self.sync_interval_hours = int(os.getenv("INVENTORY_SYNC_INTERVAL_HOURS", "6"))
+        self.sync_interval_minutes = self._parse_interval_config(os.getenv("INVENTORY_SYNC_INTERVAL", "6h"))
         self.dry_run_mode = os.getenv("INVENTORY_SYNC_DRY_RUN", "false").lower() == "true"
         
         # Initialize components
@@ -98,11 +98,75 @@ class InventorySyncOrchestrator:
         
         logger.info("✅ Environment validation passed")
         logger.info(f"🔧 Configuration:")
-        logger.info(f"  - Sync interval: {self.sync_interval_hours} hours")
+        logger.info(f"  - Sync interval: {self._format_interval_display(self.sync_interval_minutes)}")
         logger.info(f"  - Dry run mode: {self.dry_run_mode}")
         logger.info(f"  - Shop domain: {self.shopify_shop_domain}")
         
         return True
+    
+    def _parse_interval_config(self, interval_str: str) -> int:
+        """Parse interval configuration string to minutes"""
+        try:
+            interval_str = interval_str.strip().lower()
+            
+            if interval_str.endswith('h'):
+                # Hours format: "6h", "2h", etc.
+                hours = int(interval_str[:-1])
+                return hours * 60
+            elif interval_str.endswith('m'):
+                # Minutes format: "30m", "15m", etc.
+                minutes = int(interval_str[:-1])
+                return minutes
+            elif interval_str.endswith('min'):
+                # Minutes format: "30min", "15min", etc.
+                minutes = int(interval_str[:-3])
+                return minutes
+            else:
+                # Default: assume hours if no unit specified
+                hours = int(interval_str)
+                return hours * 60
+                
+        except (ValueError, AttributeError):
+            logger.warning(f"Invalid interval format: {interval_str}, using default 6 hours")
+            return 6 * 60  # Default to 6 hours
+    
+    def _format_interval_display(self, minutes: int) -> str:
+        """Format interval for display"""
+        if minutes >= 60:
+            hours = minutes // 60
+            remaining_minutes = minutes % 60
+            if remaining_minutes == 0:
+                return f"{hours} hour{'s' if hours != 1 else ''}"
+            else:
+                return f"{hours} hour{'s' if hours != 1 else ''} {remaining_minutes} minute{'s' if remaining_minutes != 1 else ''}"
+        else:
+            return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    
+    @staticmethod
+    def _format_interval_display_static(interval_str: str) -> str:
+        """Static method to format interval string for display"""
+        try:
+            interval_str = interval_str.strip().lower()
+            
+            if interval_str.endswith('h'):
+                # Hours format: "6h", "2h", etc.
+                hours = int(interval_str[:-1])
+                return f"{hours} hour{'s' if hours != 1 else ''}"
+            elif interval_str.endswith('m'):
+                # Minutes format: "30m", "15m", etc.
+                minutes = int(interval_str[:-1])
+                return f"{minutes} minute{'s' if minutes != 1 else ''}"
+            elif interval_str.endswith('min'):
+                # Minutes format: "30min", "15min", etc.
+                minutes = int(interval_str[:-3])
+                return f"{minutes} minute{'s' if minutes != 1 else ''}"
+            else:
+                # Default: assume hours if no unit specified
+                hours = int(interval_str)
+                return f"{hours} hour{'s' if hours != 1 else ''}"
+                
+        except (ValueError, AttributeError):
+            return "2 hours"  # Default fallback
     
     def initialize_components(self) -> bool:
         """Initialize Shopify client, storage, and inventory manager"""
@@ -147,6 +211,50 @@ class InventorySyncOrchestrator:
                 logger.info(f"  - Variants failed: {result.variants_failed}")
                 logger.info(f"  - Products with changes: {result.products_with_changes}")
                 logger.info(f"  - Execution time: {result.execution_time_seconds:.2f} seconds")
+                
+                # Show detailed update information if there were updates
+                if result.variants_updated > 0 and hasattr(result, 'updated_variants') and result.updated_variants:
+                    successful_updates = [u for u in result.updated_variants if u]
+                    if successful_updates:
+                        logger.info("📋 Detailed update information:")
+                        for i, update in enumerate(successful_updates, 1):
+                            # Try to get product and variant details from the inventory manager
+                            try:
+                                # Get current products to find details
+                                current_products = self.shopify_client.get_all_active_products_with_variants()
+                                
+                                # Find the product and variant
+                                product_title = "Unknown Product"
+                                variant_title = None
+                                
+                                for product in current_products:
+                                    if str(product.get('id')) == str(update.product_id):
+                                        product_title = product.get('title', 'Unknown Product')
+                                        # Find the variant
+                                        for variant in product.get('variants', []):
+                                            if str(variant.get('id')) == str(update.variant_id):
+                                                variant_title = variant.get('title')
+                                                break
+                                        break
+                                
+                                # Build variant info
+                                variant_info_parts = []
+                                if variant_title and variant_title != "Default Title":
+                                    variant_info_parts.append(f"'{variant_title}'")
+                                variant_info_parts.append(f"ID: {update.variant_id}")
+                                variant_info = " - ".join(variant_info_parts)
+                                
+                                logger.info(f"  [{i:2d}] 📦 {product_title}")
+                                logger.info(f"       🔸 Variant: {variant_info}")
+                                logger.info(f"       📊 Inventory: {update.old_quantity} → {update.new_quantity}")
+                                logger.info(f"       🏷️  Metafield: {update.metafield_namespace}.{update.metafield_key}")
+                                
+                            except Exception as e:
+                                # Fallback to basic info if we can't get details
+                                logger.info(f"  [{i:2d}] ✅ Variant ID: {update.variant_id}")
+                                logger.info(f"       📊 Inventory: {update.old_quantity} → {update.new_quantity}")
+                                logger.info(f"       🏷️  Metafield: {update.metafield_namespace}.{update.metafield_key}")
+                                logger.debug(f"       ⚠️  Could not get product details: {e}")
                 
                 if result.errors:
                     logger.warning(f"⚠️  Encountered {len(result.errors)} errors:")
@@ -194,13 +302,13 @@ class InventorySyncOrchestrator:
             # Add the inventory sync job
             self.scheduler.add_job(
                 func=self._scheduled_sync_job,
-                trigger=IntervalTrigger(hours=self.sync_interval_hours),
+                trigger=IntervalTrigger(minutes=self.sync_interval_minutes),
                 id='inventory_sync_job',
-                name=f'Inventory Sync (every {self.sync_interval_hours}h)',
+                name=f'Inventory Sync (every {self._format_interval_display(self.sync_interval_minutes)})',
                 replace_existing=True
             )
             
-            logger.info(f"📅 Scheduler configured for {self.sync_interval_hours}-hour intervals")
+            logger.info(f"📅 Scheduler configured for {self._format_interval_display(self.sync_interval_minutes)} intervals")
             return True
             
         except Exception as e:
@@ -214,14 +322,35 @@ class InventorySyncOrchestrator:
         
         if result["success"]:
             logger.info("✅ Scheduled sync completed successfully")
+            
+            # Show detailed results if there were updates
+            sync_result = result.get("sync_result")
+            if sync_result and sync_result.variants_updated > 0:
+                logger.info("📋 Scheduled sync update details:")
+                logger.info(f"  - Variants updated: {sync_result.variants_updated}")
+                logger.info(f"  - Products with changes: {sync_result.products_with_changes}")
+                logger.info(f"  - Execution time: {sync_result.execution_time_seconds:.2f} seconds")
+                
+                # Show successful updates if available
+                if hasattr(sync_result, 'updated_variants') and sync_result.updated_variants:
+                     successful_updates = [u for u in sync_result.updated_variants if u]
+                     if successful_updates:
+                         logger.info("  📦 Successfully updated variants:")
+                         for i, update in enumerate(successful_updates, 1):
+                             logger.info(f"    [{i}] Variant ID: {update.variant_id}")
+                             logger.info(f"        Inventory: {update.old_quantity} → {update.new_quantity}")
+                         # Note: For scheduled mode, we don't have access to product/variant titles here
+                         # The detailed info is already logged in the main sync process
         else:
             logger.error("❌ Scheduled sync failed")
+            if result.get("error"):
+                logger.error(f"  Error: {result['error']}")
     
     def start_scheduled_mode(self):
         """Start the scheduler to run syncs automatically"""
         try:
             logger.info("🔄 Starting scheduled inventory sync mode...")
-            logger.info(f"📅 Will sync every {self.sync_interval_hours} hours")
+            logger.info(f"📅 Will sync every {self._format_interval_display(self.sync_interval_minutes)}")
             logger.info("⏹️  Press Ctrl+C to stop")
             
             self.is_running = True
@@ -267,7 +396,8 @@ class InventorySyncOrchestrator:
                 "is_running": self.is_running,
                 "sync_in_progress": self.sync_in_progress,
                 "configuration": {
-                    "sync_interval_hours": self.sync_interval_hours,
+                    "sync_interval_minutes": self.sync_interval_minutes,
+                    "sync_interval_display": self._format_interval_display(self.sync_interval_minutes),
                     "dry_run_mode": self.dry_run_mode,
                     "shop_domain": self.shopify_shop_domain
                 },

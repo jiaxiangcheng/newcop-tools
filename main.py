@@ -14,6 +14,31 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+def format_interval_display(interval_str: str) -> str:
+    """Format interval string for display"""
+    try:
+        interval_str = interval_str.strip().lower()
+        
+        if interval_str.endswith('h'):
+            # Hours format: "6h", "2h", etc.
+            hours = int(interval_str[:-1])
+            return f"{hours} hour{'s' if hours != 1 else ''}"
+        elif interval_str.endswith('m'):
+            # Minutes format: "30m", "15m", etc.
+            minutes = int(interval_str[:-1])
+            return f"{minutes} minute{'s' if minutes != 1 else ''}"
+        elif interval_str.endswith('min'):
+            # Minutes format: "30min", "15min", etc.
+            minutes = int(interval_str[:-3])
+            return f"{minutes} minute{'s' if minutes != 1 else ''}"
+        else:
+            # Default: assume hours if no unit specified
+            hours = int(interval_str)
+            return f"{hours} hour{'s' if hours != 1 else ''}"
+            
+    except (ValueError, AttributeError):
+        return "2 hours"  # Default fallback
+
 def show_banner():
     """Display the application banner"""
     print("=" * 60)
@@ -40,10 +65,13 @@ def run_dynamic_collections() -> bool:
         print("\n🔄 Starting Dynamic Collections Script...")
         print("=" * 60)
         
+        # Get interval from environment variable
+        dynamic_collections_interval_days = os.getenv("DYNAMIC_COLLECTIONS_INTERVAL_DAYS", "15")
+        
         # Ask user for execution mode
         print("Select execution mode:")
         print("1. 🔧 Manual Sync (run once)")
-        print("2. 🔄 Scheduled Mode (run every 15 days)")
+        print(f"2. 🔄 Scheduled Mode (run every {dynamic_collections_interval_days} days)")
         print("3. 🧪 Dry Run (analyze changes only)")
         print("0. ↩️  Return to main menu")
         
@@ -60,7 +88,7 @@ def run_dynamic_collections() -> bool:
                     break
                 elif mode_choice == "2":
                     # Scheduled mode
-                    print("\n⚠️  Scheduled mode will run continuously every 15 days. Press Ctrl+C to stop.")
+                    print(f"\n⚠️  Scheduled mode will run continuously every {dynamic_collections_interval_days} days. Press Ctrl+C to stop.")
                     confirm = input("Continue? (y/N): ").strip().lower()
                     if confirm in ['y', 'yes']:
                         from scripts.dynamic_collections.main import run_dynamic_collections
@@ -103,10 +131,14 @@ def run_inventory_sync() -> bool:
         print("\n📦 Starting Inventory Sync Script...")
         print("=" * 60)
         
+        # Get interval from environment variable
+        inventory_sync_interval = os.getenv("INVENTORY_SYNC_INTERVAL", "2h")
+        interval_display = format_interval_display(inventory_sync_interval)
+        
         # Ask user for execution mode
         print("Select execution mode:")
         print("1. 🔧 Manual Sync (run once)")
-        print("2. 🔄 Scheduled Mode (run every 2 hours)")
+        print(f"2. 🔄 Scheduled Mode (run every {interval_display})")
         print("3. 🧪 Dry Run (analyze changes only)")
         print("0. ↩️  Return to main menu")
         
@@ -123,7 +155,7 @@ def run_inventory_sync() -> bool:
                     break
                 elif mode_choice == "2":
                     # Scheduled mode
-                    print("\n⚠️  Scheduled mode will run continuously. Press Ctrl+C to stop.")
+                    print(f"\n⚠️  Scheduled mode will run continuously every {interval_display}. Press Ctrl+C to stop.")
                     confirm = input("Continue? (y/N): ").strip().lower()
                     if confirm in ['y', 'yes']:
                         from scripts.inventory_sync.main import run_inventory_sync
