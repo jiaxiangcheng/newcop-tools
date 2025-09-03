@@ -206,7 +206,7 @@ class InventoryManager:
                 logger.info("📋 Successfully updated variants summary:")
                 successful_updates = [u for u in updated_variants if u]
                 for i, update in enumerate(successful_updates, 1):
-                    # Find the corresponding change for product title
+                    # Find the corresponding change for product title and variant info
                     matching_change = None
                     for change in variants_to_update:
                         if change.variant_id == update.variant_id:
@@ -214,8 +214,16 @@ class InventoryManager:
                             break
                     
                     product_title = matching_change.product_title if matching_change else "Unknown Product"
+                    
+                    # Build variant info
+                    variant_info_parts = []
+                    if matching_change and matching_change.variant_title and matching_change.variant_title != "Default Title":
+                        variant_info_parts.append(f"'{matching_change.variant_title}'")
+                    variant_info_parts.append(f"ID: {update.variant_id}")
+                    variant_info = " - ".join(variant_info_parts)
+                    
                     logger.info(f"  [{i:2d}] 📦 {product_title}")
-                    logger.info(f"       🔸 Variant ID: {update.variant_id}")
+                    logger.info(f"       🔸 Variant: {variant_info}")
                     logger.info(f"       📊 Inventory: {update.old_quantity} → {update.new_quantity}")
                     logger.info(f"       🏷️  Metafield: {update.metafield_namespace}.{update.metafield_key}")
             
@@ -305,12 +313,26 @@ class InventoryManager:
                     updates.append(variant_update)
                     
                     if variant_update:
-                        logger.info(f"    ✅ Updated variant {variant_change.variant_id}: {variant_change.change_description}")
-                        logger.debug(f"         Product: {variant_change.product_title}")
-                        logger.debug(f"         Metafield: {self.namespace}.{self.metafield_key} = {variant_change.new_quantity}")
+                        # Build detailed variant info
+                        variant_info_parts = []
+                        if variant_change.variant_title and variant_change.variant_title != "Default Title":
+                            variant_info_parts.append(f"'{variant_change.variant_title}'")
+                        variant_info_parts.append(f"ID: {variant_change.variant_id}")
+                        
+                        variant_info = " - ".join(variant_info_parts)
+                        logger.info(f"    ✅ Updated variant {variant_info}: {variant_change.change_description}")
+                        logger.info(f"         📦 Product: {variant_change.product_title}")
+                        logger.debug(f"         🏷️  Metafield: {self.namespace}.{self.metafield_key} = {variant_change.new_quantity}")
                     else:
-                        logger.warning(f"    ❌ Failed to update variant {variant_change.variant_id}: {error_message or 'Unknown error'}")
-                        logger.warning(f"         Product: {variant_change.product_title}")
+                        # Build detailed variant info for failed updates
+                        variant_info_parts = []
+                        if variant_change.variant_title and variant_change.variant_title != "Default Title":
+                            variant_info_parts.append(f"'{variant_change.variant_title}'")
+                        variant_info_parts.append(f"ID: {variant_change.variant_id}")
+                        
+                        variant_info = " - ".join(variant_info_parts)
+                        logger.warning(f"    ❌ Failed to update variant {variant_info}: {error_message or 'Unknown error'}")
+                        logger.warning(f"         📦 Product: {variant_change.product_title}")
                         # Add to retry queue if not already a retry
                         if not is_retry:
                             self.retry_queue.add_failed_update(variant_change, error_message or "Unknown error")
