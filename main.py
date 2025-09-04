@@ -151,7 +151,7 @@ def run_inventory_sync() -> bool:
                 elif mode_choice == "1":
                     # Manual sync
                     from scripts.inventory_sync.main import run_inventory_sync
-                    success = run_inventory_sync(mode="manual", dry_run=False)
+                    success = run_inventory_sync(mode="manual", dry_run=False, sync_fields=None, sync_config=None)
                     break
                 elif mode_choice == "2":
                     # Scheduled mode
@@ -159,14 +159,14 @@ def run_inventory_sync() -> bool:
                     confirm = input("Continue? (y/N): ").strip().lower()
                     if confirm in ['y', 'yes']:
                         from scripts.inventory_sync.main import run_inventory_sync
-                        success = run_inventory_sync(mode="scheduled", dry_run=False)
+                        success = run_inventory_sync(mode="scheduled", dry_run=False, sync_fields=None, sync_config=None)
                     else:
                         success = True  # User cancelled
                     break
                 elif mode_choice == "3":
                     # Dry run
                     from scripts.inventory_sync.main import run_inventory_sync
-                    success = run_inventory_sync(mode="manual", dry_run=True)
+                    success = run_inventory_sync(mode="manual", dry_run=True, sync_fields=None, sync_config=None)
                     break
                 else:
                     print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")

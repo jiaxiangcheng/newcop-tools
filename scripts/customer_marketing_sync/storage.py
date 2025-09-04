@@ -28,6 +28,11 @@ def get_customer_email_marketing_status(customer_data: dict) -> bool:
     Returns:
         bool: True if customer is subscribed to email marketing, False otherwise
     """
+    # Handle None customer_data
+    if customer_data is None:
+        logger.warning("Customer data is None, defaulting to False for email marketing status")
+        return False
+        
     email_marketing_consent = customer_data.get('email_marketing_consent', {})
     marketing_state = email_marketing_consent.get('state')
     
@@ -180,6 +185,11 @@ class CustomerMarketingStorage:
         cache.total_customers = len(current_customers)
         
         for customer in current_customers:
+            # Skip None customers
+            if customer is None:
+                logger.warning("Skipping None customer in cache update")
+                continue
+                
             customer_id = str(customer.get('id'))
             email = customer.get('email', 'unknown@unknown.com')
             first_name = customer.get('first_name')

@@ -1,0 +1,372 @@
+{
+  "last_sync": "2025-09-04T20:46:29.528123",
+  "products": {
+    "10483621593352": {
+      "product_id": 10483621593352,
+      "product_title": "Gift Card",
+      "variants": {
+        "52294101401864": {
+          "variant_id": 52294101401864,
+          "product_id": 10483621593352,
+          "inventory_quantity": 0,
+          "price": "10.00",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "$10",
+          "sku": null
+        },
+        "52294101434632": {
+          "variant_id": 52294101434632,
+          "product_id": 10483621593352,
+          "inventory_quantity": 0,
+          "price": "25.00",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "$25",
+          "sku": null
+        },
+        "52294101467400": {
+          "variant_id": 52294101467400,
+          "product_id": 10483621593352,
+          "inventory_quantity": 0,
+          "price": "50.00",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "$50",
+          "sku": null
+        },
+        "52294101500168": {
+          "variant_id": 52294101500168,
+          "product_id": 10483621593352,
+          "inventory_quantity": 0,
+          "price": "100.00",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "$100",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621888264": {
+      "product_id": 10483621888264,
+      "product_title": "Selling Plans Ski Wax",
+      "variants": {
+        "52294101958920": {
+          "variant_id": 52294101958920,
+          "product_id": 10483621888264,
+          "inventory_quantity": 10,
+          "price": "24.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Selling Plans Ski Wax",
+          "sku": null
+        },
+        "52294101991688": {
+          "variant_id": 52294101991688,
+          "product_id": 10483621888264,
+          "inventory_quantity": 10,
+          "price": "49.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Special Selling Plans Ski Wax",
+          "sku": null
+        },
+        "52294102024456": {
+          "variant_id": 52294102024456,
+          "product_id": 10483621888264,
+          "inventory_quantity": 10,
+          "price": "9.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Sample Selling Plans Ski Wax",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483622052104": {
+      "product_id": 10483622052104,
+      "product_title": "The 3p Fulfilled Snowboard",
+      "variants": {
+        "52294102155528": {
+          "variant_id": 52294102155528,
+          "product_id": 10483622052104,
+          "inventory_quantity": 20,
+          "price": "2629.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": "sku-hosted-1"
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621691656": {
+      "product_id": 10483621691656,
+      "product_title": "The Collection Snowboard: Hydrogen",
+      "variants": {
+        "52294101598472": {
+          "variant_id": 52294101598472,
+          "product_id": 10483621691656,
+          "inventory_quantity": 50,
+          "price": "600.00",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621986568": {
+      "product_id": 10483621986568,
+      "product_title": "The Collection Snowboard: Liquid",
+      "variants": {
+        "52294102089992": {
+          "variant_id": 52294102089992,
+          "product_id": 10483621986568,
+          "inventory_quantity": 50,
+          "price": "749.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621953800": {
+      "product_id": 10483621953800,
+      "product_title": "The Collection Snowboard: Oxygen",
+      "variants": {
+        "52294102057224": {
+          "variant_id": 52294102057224,
+          "product_id": 10483621953800,
+          "inventory_quantity": 50,
+          "price": "1025.00",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621724424": {
+      "product_id": 10483621724424,
+      "product_title": "The Compare at Price Snowboard",
+      "variants": {
+        "52294101631240": {
+          "variant_id": 52294101631240,
+          "product_id": 10483621724424,
+          "inventory_quantity": 10,
+          "price": "785.95",
+          "compare_at_price": "885.95",
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621757192": {
+      "product_id": 10483621757192,
+      "product_title": "The Complete Snowboard",
+      "variants": {
+        "52294101664008": {
+          "variant_id": 52294101664008,
+          "product_id": 10483621757192,
+          "inventory_quantity": 10,
+          "price": "699.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Ice",
+          "sku": null
+        },
+        "52294101696776": {
+          "variant_id": 52294101696776,
+          "product_id": 10483621757192,
+          "inventory_quantity": 10,
+          "price": "699.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Dawn",
+          "sku": null
+        },
+        "52294101762312": {
+          "variant_id": 52294101762312,
+          "product_id": 10483621757192,
+          "inventory_quantity": 10,
+          "price": "699.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Powder",
+          "sku": null
+        },
+        "52294101795080": {
+          "variant_id": 52294101795080,
+          "product_id": 10483621757192,
+          "inventory_quantity": 10,
+          "price": "699.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Electric",
+          "sku": null
+        },
+        "52294101893384": {
+          "variant_id": 52294101893384,
+          "product_id": 10483621757192,
+          "inventory_quantity": 10,
+          "price": "699.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Sunset",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621855496": {
+      "product_id": 10483621855496,
+      "product_title": "The Hidden Snowboard",
+      "variants": {
+        "52294101729544": {
+          "variant_id": 52294101729544,
+          "product_id": 10483621855496,
+          "inventory_quantity": 50,
+          "price": "749.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621560584": {
+      "product_id": 10483621560584,
+      "product_title": "The Inventory Tracked Snowboard",
+      "variants": {
+        "52294741491976": {
+          "variant_id": 52294741491976,
+          "product_id": 10483621560584,
+          "inventory_quantity": 2,
+          "price": "949.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Small",
+          "sku": "sku-untracked-1"
+        },
+        "52294741524744": {
+          "variant_id": 52294741524744,
+          "product_id": 10483621560584,
+          "inventory_quantity": 0,
+          "price": "949.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Medium",
+          "sku": "sku-untracked-2"
+        },
+        "52294741557512": {
+          "variant_id": 52294741557512,
+          "product_id": 10483621560584,
+          "inventory_quantity": 1,
+          "price": "949.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Large",
+          "sku": "sku-untracked-3"
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621626120": {
+      "product_id": 10483621626120,
+      "product_title": "The Minimal Snowboard",
+      "variants": {
+        "52294101532936": {
+          "variant_id": 52294101532936,
+          "product_id": 10483621626120,
+          "inventory_quantity": 50,
+          "price": "885.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483622019336": {
+      "product_id": 10483622019336,
+      "product_title": "The Multi-location Snowboard",
+      "variants": {
+        "52294102122760": {
+          "variant_id": 52294102122760,
+          "product_id": 10483622019336,
+          "inventory_quantity": 100,
+          "price": "729.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483622084872": {
+      "product_id": 10483622084872,
+      "product_title": "The Multi-managed Snowboard",
+      "variants": {
+        "52294102188296": {
+          "variant_id": 52294102188296,
+          "product_id": 10483622084872,
+          "inventory_quantity": 100,
+          "price": "629.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": "sku-managed-1"
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621658888": {
+      "product_id": 10483621658888,
+      "product_title": "The Out of Stock Snowboard",
+      "variants": {
+        "52294101565704": {
+          "variant_id": 52294101565704,
+          "product_id": 10483621658888,
+          "inventory_quantity": 0,
+          "price": "885.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    },
+    "10483621789960": {
+      "product_id": 10483621789960,
+      "product_title": "The Videographer Snowboard",
+      "variants": {
+        "52294101827848": {
+          "variant_id": 52294101827848,
+          "product_id": 10483621789960,
+          "inventory_quantity": 50,
+          "price": "885.95",
+          "compare_at_price": null,
+          "last_updated": "2025-09-04T20:46:29.528123",
+          "title": "Default Title",
+          "sku": null
+        }
+      },
+      "last_sync": "2025-09-04T20:46:29.528123"
+    }
+  },
+  "total_products": 15,
+  "total_variants": 26
+}

@@ -162,7 +162,7 @@ class InventoryStorage:
                     if old_price != current_price:
                         changed_fields.append('price')
                     if old_compare_at_price != current_compare_at_price:
-                        changed_fields.append('compare_at_price')
+                        changed_fields.append('compare_price')  # Use consistent field name
                     
                     has_changed = len(changed_fields) > 0
                     
@@ -247,6 +247,56 @@ class InventoryStorage:
         cache.total_variants = total_variants
         
         logger.info(f"Updated cache with {len(current_products)} products and {total_variants} variants")
+        return cache
+    
+    def update_cache_with_product_batch(self, 
+                                      product_batch: List[dict], 
+                                      cache: InventoryCache) -> InventoryCache:
+        """Update cache with a batch of products (incremental update)"""
+        now = datetime.now()
+        
+        batch_variants = 0
+        
+        for product in product_batch:
+            product_id = str(product.get('id'))
+            product_title = product.get('title', 'Unknown Product')
+            variants = product.get('variants', [])
+            
+            # Create or update product cache entry
+            product_cache = ProductInventoryCache(
+                product_id=int(product_id),
+                product_title=product_title,
+                last_sync=now,
+                variants={}
+            )
+            
+            # Process variants
+            for variant in variants:
+                variant_id = str(variant.get('id'))
+                inventory_quantity = variant.get('inventory_quantity', 0)
+                
+                variant_inventory = VariantInventory(
+                    variant_id=int(variant_id),
+                    product_id=int(product_id),
+                    inventory_quantity=inventory_quantity,
+                    price=variant.get('price'),
+                    compare_at_price=variant.get('compare_at_price'),
+                    last_updated=now,
+                    title=variant.get('title'),
+                    sku=variant.get('sku')
+                )
+                
+                product_cache.variants[variant_id] = variant_inventory
+                batch_variants += 1
+            
+            cache.products[product_id] = product_cache
+        
+        # Update cache metadata
+        cache.last_sync = now
+        cache.total_variants = sum(len(p.variants) for p in cache.products.values())
+        cache.total_products = len(cache.products)
+        
+        logger.debug(f"Updated cache with batch of {len(product_batch)} products ({batch_variants} variants)")
         return cache
     
     def get_cache_stats(self) -> dict:

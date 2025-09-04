@@ -22,7 +22,7 @@ import sys
 import logging
 import signal
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set, List
 from dotenv import load_dotenv
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -36,6 +36,7 @@ from shared.shopify_client import ShopifyClient
 from shared.logger import setup_logger
 from scripts.inventory_sync.inventory_manager import InventoryManager
 from scripts.inventory_sync.storage import InventoryStorage
+from scripts.inventory_sync.models import FlexibleSyncConfig, SyncField, SyncMode
 
 # Load environment variables
 load_dotenv()
@@ -60,14 +61,23 @@ for logger_name in related_loggers:
 class InventorySyncOrchestrator:
     """Main orchestrator for inventory synchronization with scheduling capabilities"""
     
-    def __init__(self):
+    def __init__(self, sync_config: Optional[FlexibleSyncConfig] = None):
         # Configuration from environment variables
         self.shopify_admin_token = os.getenv("SHOPIFY_ADMIN_TOKEN")
         self.shopify_shop_domain = os.getenv("SHOPIFY_SHOP_DOMAIN")
         
-        # Sync configuration
+        # Create flexible sync configuration
+        if sync_config is not None:
+            self.sync_config = sync_config
+        else:
+            # Create config from environment variables
+            env_dict = {k: v for k, v in os.environ.items() if v is not None}
+            self.sync_config = FlexibleSyncConfig.from_env_vars(env_dict)
+        
+        # Legacy configuration for backward compatibility
         self.sync_interval_minutes = self._parse_interval_config(os.getenv("INVENTORY_SYNC_INTERVAL", "6h"))
-        self.dry_run_mode = os.getenv("INVENTORY_SYNC_DRY_RUN", "false").lower() == "true"
+        self.dry_run_mode = self.sync_config.dry_run
+        self.batch_size = self.sync_config.batch_size
         
         # Initialize components
         self.shopify_client = None
@@ -97,9 +107,28 @@ class InventorySyncOrchestrator:
             return False
         
         logger.info("✅ Environment validation passed")
-        logger.info(f"🔧 Configuration:")
-        logger.info(f"  - Sync interval: {self._format_interval_display(self.sync_interval_minutes)}")
-        logger.info(f"  - Dry run mode: {self.dry_run_mode}")
+        logger.info(f"🔧 Flexible Sync Configuration:")
+        
+        enabled_fields = self.sync_config.get_enabled_fields()
+        if enabled_fields:
+            logger.info(f"  - Enabled fields: {', '.join([f.value for f in enabled_fields])}")
+        else:
+            logger.warning("  - No fields are enabled for synchronization!")
+        
+        logger.info(f"  - Inventory: {'✅' if self.sync_config.inventory.enabled else '❌'} {self.sync_config.inventory.mode.value}")
+        if self.sync_config.inventory.enabled and self.sync_config.inventory.mode == SyncMode.SCHEDULED:
+            logger.info(f"    Interval: {self._format_interval_display(self.sync_config.inventory.interval_minutes)}")
+        
+        logger.info(f"  - Price: {'✅' if self.sync_config.price.enabled else '❌'} {self.sync_config.price.mode.value}")
+        if self.sync_config.price.enabled and self.sync_config.price.mode == SyncMode.SCHEDULED:
+            logger.info(f"    Interval: {self._format_interval_display(self.sync_config.price.interval_minutes)}")
+        
+        logger.info(f"  - Compare Price: {'✅' if self.sync_config.compare_price.enabled else '❌'} {self.sync_config.compare_price.mode.value}")
+        if self.sync_config.compare_price.enabled and self.sync_config.compare_price.mode == SyncMode.SCHEDULED:
+            logger.info(f"    Interval: {self._format_interval_display(self.sync_config.compare_price.interval_minutes)}")
+        
+        logger.info(f"  - Dry run mode: {self.sync_config.dry_run}")
+        logger.info(f"  - Batch size: {self.sync_config.batch_size} products")
         logger.info(f"  - Shop domain: {self.shopify_shop_domain}")
         
         return True
@@ -174,7 +203,7 @@ class InventorySyncOrchestrator:
             # Initialize clients
             self.shopify_client = ShopifyClient(self.shopify_admin_token, self.shopify_shop_domain)
             self.storage = InventoryStorage()
-            self.inventory_manager = InventoryManager(self.shopify_client, self.storage)
+            self.inventory_manager = InventoryManager(self.shopify_client, self.storage, self.sync_config)
             
             logger.info("✅ Components initialized successfully")
             return True
@@ -197,9 +226,12 @@ class InventorySyncOrchestrator:
             if sync_dry_run:
                 logger.info("🧪 Running in DRY RUN mode - no changes will be made")
             
-            # Run the sync
-            logger.info("FIRST STEP")
-            result = self.inventory_manager.sync_inventory_to_metafields(dry_run=sync_dry_run)
+            # Run the flexible sync with batch processing
+            result = self.inventory_manager.sync_fields_to_metafields(
+                target_fields=None,  # Use config defaults
+                dry_run=sync_dry_run, 
+                batch_size=self.batch_size
+            )
             
             # Log detailed results
             if result.success:
@@ -212,49 +244,7 @@ class InventorySyncOrchestrator:
                 logger.info(f"  - Products with changes: {result.products_with_changes}")
                 logger.info(f"  - Execution time: {result.execution_time_seconds:.2f} seconds")
                 
-                # Show detailed update information if there were updates
-                if result.variants_updated > 0 and hasattr(result, 'updated_variants') and result.updated_variants:
-                    successful_updates = [u for u in result.updated_variants if u]
-                    if successful_updates:
-                        logger.info("📋 Detailed update information:")
-                        for i, update in enumerate(successful_updates, 1):
-                            # Try to get product and variant details from the inventory manager
-                            try:
-                                # Get current products to find details
-                                current_products = self.shopify_client.get_all_active_products_with_variants()
-                                
-                                # Find the product and variant
-                                product_title = "Unknown Product"
-                                variant_title = None
-                                
-                                for product in current_products:
-                                    if str(product.get('id')) == str(update.product_id):
-                                        product_title = product.get('title', 'Unknown Product')
-                                        # Find the variant
-                                        for variant in product.get('variants', []):
-                                            if str(variant.get('id')) == str(update.variant_id):
-                                                variant_title = variant.get('title')
-                                                break
-                                        break
-                                
-                                # Build variant info
-                                variant_info_parts = []
-                                if variant_title and variant_title != "Default Title":
-                                    variant_info_parts.append(f"'{variant_title}'")
-                                variant_info_parts.append(f"ID: {update.variant_id}")
-                                variant_info = " - ".join(variant_info_parts)
-                                
-                                logger.info(f"  [{i:2d}] 📦 {product_title}")
-                                logger.info(f"       🔸 Variant: {variant_info}")
-                                logger.info(f"       📊 Inventory: {update.old_quantity} → {update.new_quantity}")
-                                logger.info(f"       🏷️  Metafield: {update.metafield_namespace}.{update.metafield_key}")
-                                
-                            except Exception as e:
-                                # Fallback to basic info if we can't get details
-                                logger.info(f"  [{i:2d}] ✅ Variant ID: {update.variant_id}")
-                                logger.info(f"       📊 Inventory: {update.old_quantity} → {update.new_quantity}")
-                                logger.info(f"       🏷️  Metafield: {update.metafield_namespace}.{update.metafield_key}")
-                                logger.debug(f"       ⚠️  Could not get product details: {e}")
+                # Note: Detailed logs are now handled by the inventory manager
                 
                 if result.errors:
                     logger.warning(f"⚠️  Encountered {len(result.errors)} errors:")
@@ -274,6 +264,75 @@ class InventorySyncOrchestrator:
             
         except Exception as e:
             logger.error(f"💥 Unexpected error during sync: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        finally:
+            self.sync_in_progress = False
+    
+    def run_flexible_sync(self, target_fields: Optional[Set[SyncField]] = None, 
+                         dry_run: Optional[bool] = None) -> Dict[str, Any]:
+        """Run a flexible sync for specific fields"""
+        if self.sync_in_progress:
+            logger.warning("⚠️  Sync already in progress, skipping...")
+            return {"success": False, "message": "Sync already in progress"}
+        
+        try:
+            self.sync_in_progress = True
+            sync_dry_run = dry_run if dry_run is not None else self.sync_config.dry_run
+            
+            # Use config defaults if no fields specified
+            enabled_fields = target_fields or self.sync_config.get_enabled_fields()
+            
+            if not enabled_fields:
+                logger.warning("⚠️  No fields are enabled for synchronization")
+                return {"success": False, "message": "No fields enabled"}
+            
+            logger.info(f"🚀 Starting flexible sync for fields: {', '.join([f.value for f in enabled_fields])}")
+            if sync_dry_run:
+                logger.info("🧪 Running in DRY RUN mode - no changes will be made")
+            
+            # Run the flexible sync
+            result = self.inventory_manager.sync_fields_to_metafields(
+                target_fields=enabled_fields,
+                dry_run=sync_dry_run, 
+                batch_size=self.sync_config.batch_size
+            )
+            
+            # Log detailed results
+            if result.success:
+                logger.info("✅ Flexible synchronization completed successfully!")
+                logger.info(f"📊 Results summary:")
+                logger.info(f"  - Products processed: {result.total_products_processed}")
+                logger.info(f"  - Variants checked: {result.total_variants_checked}")
+                logger.info(f"  - Variants updated: {result.variants_updated}")
+                logger.info(f"  - Variants failed: {result.variants_failed}")
+                logger.info(f"  - Products with changes: {result.products_with_changes}")
+                logger.info(f"  - Fields synced: {', '.join([f.value for f in enabled_fields])}")
+                logger.info(f"  - Execution time: {result.execution_time_seconds:.2f} seconds")
+                
+                if result.errors:
+                    logger.warning(f"⚠️  Encountered {len(result.errors)} errors:")
+                    for error in result.errors:
+                        logger.warning(f"    - {error}")
+            else:
+                logger.error("❌ Flexible synchronization failed!")
+                if result.errors:
+                    for error in result.errors:
+                        logger.error(f"  💥 {error}")
+            
+            return {
+                "success": result.success,
+                "sync_result": result,
+                "fields_synced": [f.value for f in enabled_fields],
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"💥 Unexpected error during flexible sync: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -417,19 +476,23 @@ class InventorySyncOrchestrator:
             logger.error(f"Error getting status: {e}")
             return {"error": str(e)}
 
-def run_inventory_sync(mode: str = "manual", dry_run: bool = False) -> bool:
+def run_inventory_sync(mode: str = "manual", dry_run: bool = False, 
+                      sync_fields: Optional[List[str]] = None, 
+                      sync_config: Optional[FlexibleSyncConfig] = None) -> bool:
     """
     Entry point for inventory sync script
     
     Args:
         mode: "manual" for one-time sync, "scheduled" for continuous mode
         dry_run: Whether to run in dry-run mode (analysis only)
+        sync_fields: List of field names to sync (inventory, price, compare_price)
+        sync_config: Pre-configured sync configuration
     
     Returns:
         Boolean indicating success
     """
     try:
-        orchestrator = InventorySyncOrchestrator()
+        orchestrator = InventorySyncOrchestrator(sync_config=sync_config)
         
         # Validate environment
         if not orchestrator.validate_environment():
@@ -448,8 +511,22 @@ def run_inventory_sync(mode: str = "manual", dry_run: bool = False) -> bool:
             return True
             
         else:  # manual mode
-            # Run single sync
-            result = orchestrator.run_single_sync(dry_run=dry_run)
+            # Determine target fields
+            target_fields = None
+            if sync_fields:
+                try:
+                    target_fields = {SyncField(field.strip()) for field in sync_fields}
+                    logger.info(f"🎯 Manual sync targeting specific fields: {', '.join([f.value for f in target_fields])}")
+                except ValueError as e:
+                    logger.error(f"❌ Invalid field name: {e}")
+                    logger.error(f"Valid fields: {', '.join([f.value for f in SyncField])}")
+                    return False
+            
+            # Run flexible sync
+            if target_fields:
+                result = orchestrator.run_flexible_sync(target_fields=target_fields, dry_run=dry_run)
+            else:
+                result = orchestrator.run_single_sync(dry_run=dry_run)
             return result["success"]
             
     except KeyboardInterrupt:
@@ -463,13 +540,33 @@ if __name__ == "__main__":
     # Support command line arguments
     import argparse
     
-    parser = argparse.ArgumentParser(description='Shopify Inventory Sync Script')
+    parser = argparse.ArgumentParser(description='Shopify Flexible Inventory Sync Script')
     parser.add_argument('--mode', choices=['manual', 'scheduled'], default='manual',
                       help='Execution mode (default: manual)')
     parser.add_argument('--dry-run', action='store_true',
                       help='Run in dry-run mode (analyze only, no changes)')
+    parser.add_argument('--sync-fields', 
+                      help='Comma-separated list of fields to sync (inventory,price,compare_price). '
+                           'If not specified, uses configuration defaults.')
+    parser.add_argument('--inventory-only', action='store_true',
+                      help='Sync only inventory fields (shortcut for --sync-fields inventory)')
+    parser.add_argument('--price-only', action='store_true',
+                      help='Sync only price fields (shortcut for --sync-fields price)')
+    parser.add_argument('--compare-price-only', action='store_true',
+                      help='Sync only compare price fields (shortcut for --sync-fields compare_price)')
     
     args = parser.parse_args()
     
-    success = run_inventory_sync(mode=args.mode, dry_run=args.dry_run)
+    # Parse sync fields
+    sync_fields = None
+    if args.sync_fields:
+        sync_fields = [field.strip() for field in args.sync_fields.split(',')]
+    elif args.inventory_only:
+        sync_fields = ['inventory']
+    elif args.price_only:
+        sync_fields = ['price']
+    elif args.compare_price_only:
+        sync_fields = ['compare_price']
+    
+    success = run_inventory_sync(mode=args.mode, dry_run=args.dry_run, sync_fields=sync_fields)
     sys.exit(0 if success else 1)

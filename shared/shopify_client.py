@@ -179,8 +179,8 @@ class ShopifyClient:
                     return True
                 elif status_code == 429:
                     # Rate limit exceeded, wait and retry
-                    logger.warning(f"Rate limit exceeded adding product {product_id}, retrying after delay")
-                    time.sleep(1)
+                    logger.debug(f"Rate limit hit for product {product_id}, retrying after delay")
+                    time.sleep(2)
                     return self._add_single_product_to_collection(collection_id, product_id)
                 else:
                     # Log detailed error information
@@ -299,8 +299,8 @@ class ShopifyClient:
                 status_code = e.response.status_code
                 if status_code == 429:
                     # Rate limit exceeded, wait and retry once
-                    logger.warning(f"Rate limit exceeded removing collect {collect_id}, retrying after delay")
-                    time.sleep(1)
+                    logger.debug(f"Rate limit hit for collect {collect_id}, retrying after delay")
+                    time.sleep(2)
                     try:
                         response = requests.delete(url, headers=self.headers)
                         response.raise_for_status()
@@ -696,8 +696,8 @@ class ShopifyClient:
                     return True
                 elif status_code == 429:
                     # Rate limit exceeded, wait and retry once
-                    logger.warning(f"Rate limit exceeded, retrying product {product_id} after delay")
-                    time.sleep(1)
+                    logger.debug(f"Rate limit hit for product {product_id}, retrying after delay")
+                    time.sleep(2)
                     try:
                         response = requests.post(url, headers=self.headers, json=payload)
                         response.raise_for_status()
@@ -827,23 +827,27 @@ class ShopifyClient:
                 except:
                     error_details = {"raw_response": e.response.text}
             
-            logger.error(f"Error updating variant {variant_id} metafield (method: {method}): {status_code} - {error_details} - URL: {url}")
-            logger.error(f"Raw error text: {error_text}")
-            logger.error(f"Payload sent: {json.dumps(payload, indent=2)}")
+            if status_code == 429:
+                # Rate limit exceeded - simplified logging and better retry
+                logger.debug(f"Rate limit hit for variant {variant_id}, retrying after delay")
+                time.sleep(3)  # Increased delay for better rate limiting
+            else:
+                # Non-rate-limit errors get full logging
+                logger.error(f"Error updating variant {variant_id} metafield (method: {method}): {status_code} - {error_details} - URL: {url}")
+                logger.error(f"Raw error text: {error_text}")
+                logger.error(f"Payload sent: {json.dumps(payload, indent=2)}")
             
             if status_code == 429:
-                # Rate limit exceeded, wait and retry once
-                logger.warning(f"Rate limit exceeded for variant {variant_id}, retrying after delay")
-                time.sleep(2)
                 try:
                     if method == "PUT":
                         response = requests.put(url, headers=self.headers, json=payload)
                     else:
                         response = requests.post(url, headers=self.headers, json=payload)
                     response.raise_for_status()
+                    logger.debug(f"Successfully updated variant {variant_id} after rate limit retry")
                     return True
                 except Exception as retry_error:
-                    logger.error(f"Failed to update variant {variant_id} metafield after retry: {retry_error}")
+                    logger.warning(f"Failed to update variant {variant_id} after rate limit retry")
                     return False
             else:
                 return False
@@ -873,8 +877,21 @@ class ShopifyClient:
             return metafields
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching metafields for variant {variant_id}: {e}")
-            return []
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                logger.debug(f"Rate limit hit when fetching metafields for variant {variant_id}")
+                # Wait and retry for rate limit
+                time.sleep(2)
+                try:
+                    response = requests.get(url, headers=self.headers)
+                    response.raise_for_status()
+                    data = response.json()
+                    return data.get("metafields", [])
+                except:
+                    logger.warning(f"Failed to fetch metafields for variant {variant_id} after retry")
+                    return []
+            else:
+                logger.error(f"Error fetching metafields for variant {variant_id}: {e}")
+                return []
     
     def get_product_variant_by_id(self, product_id: int, variant_id: int) -> Optional[Dict[str, Any]]:
         """Get detailed information for a specific variant"""
@@ -1025,13 +1042,7 @@ class ShopifyClient:
                         # Check for rate limiting
                         if response.status_code == 429:
                             try:
-                                try:
-                            try:
-                        retry_after = int(float(response.headers.get('Retry-After', 2)))
-                    except (ValueError, TypeError):
-                        retry_after = 2  # Default fallback
-                        except (ValueError, TypeError):
-                            retry_after = 2  # Default fallback
+                                retry_after = int(float(response.headers.get('Retry-After', 2)))
                             except (ValueError, TypeError):
                                 retry_after = 2  # Default fallback
                             logger.warning(f"⏸️  Rate limited, waiting {retry_after}s before retry...")
@@ -1230,10 +1241,7 @@ class ShopifyClient:
                     if response.status_code == 429:
                         # Rate limit exceeded, use exponential backoff
                         try:
-                            try:
-                        retry_after = int(float(response.headers.get('Retry-After', 2)))
-                    except (ValueError, TypeError):
-                        retry_after = 2  # Default fallback
+                            retry_after = int(float(response.headers.get('Retry-After', 2)))
                         except (ValueError, TypeError):
                             retry_after = 2  # Default fallback
                         wait_time = max(retry_after, 2 ** attempt)  # At least 2^attempt seconds
@@ -1281,13 +1289,7 @@ class ShopifyClient:
                         if response.status_code == 429:
                             # Rate limit exceeded, use exponential backoff
                             try:
-                                try:
-                            try:
-                        retry_after = int(float(response.headers.get('Retry-After', 2)))
-                    except (ValueError, TypeError):
-                        retry_after = 2  # Default fallback
-                        except (ValueError, TypeError):
-                            retry_after = 2  # Default fallback
+                                retry_after = int(float(response.headers.get('Retry-After', 2)))
                             except (ValueError, TypeError):
                                 retry_after = 2  # Default fallback
                             wait_time = max(retry_after, 2 ** attempt)  # At least 2^attempt seconds

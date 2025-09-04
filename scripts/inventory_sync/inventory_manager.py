@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import concurrent.futures
@@ -16,7 +16,10 @@ from scripts.inventory_sync.models import (
     InventoryCache, 
     SyncResult, 
     VariantUpdate, 
-    InventoryChangeDetection
+    InventoryChangeDetection,
+    FlexibleSyncConfig,
+    SyncField,
+    SyncMode
 )
 from scripts.inventory_sync.storage import InventoryStorage
 
@@ -104,31 +107,53 @@ class RetryQueue:
 class InventoryManager:
     """Core manager for inventory synchronization with Shopify"""
     
-    def __init__(self, shopify_client: ShopifyClient, storage: Optional[InventoryStorage] = None):
+    def __init__(self, shopify_client: ShopifyClient, storage: Optional[InventoryStorage] = None, 
+                 sync_config: Optional[FlexibleSyncConfig] = None):
         self.shopify_client = shopify_client
         self.storage = storage or InventoryStorage()
+        self.sync_config = sync_config or FlexibleSyncConfig()
         self.namespace = "custom"
         # Define metafield keys for different data
         self.inventory_key = "inventory"
         self.price_key = "price"
         self.compare_price_key = "compare_price"
         self.retry_queue = RetryQueue(max_attempts=3)
+        self.rate_limit_count = 0  # Track rate limit hits for summary
     
-    def sync_inventory_to_metafields(self, dry_run: bool = False) -> SyncResult:
+    def sync_fields_to_metafields(self, target_fields: Optional[Set[SyncField]] = None, 
+                                 dry_run: Optional[bool] = None, batch_size: Optional[int] = None) -> SyncResult:
         """
-        Main method to sync inventory quantities to variant metafields
+        Flexible method to sync specific fields to variant metafields
         
         Args:
-            dry_run: If True, only analyze changes without making updates
+            target_fields: Set of fields to sync. If None, uses fields enabled in config
+            dry_run: If True, only analyze changes without making updates. Uses config if None
+            batch_size: Number of products to process before saving cache. Uses config if None
             
         Returns:
             SyncResult with detailed statistics and results
         """
+        # Use configuration defaults if not provided
+        enabled_fields = target_fields or self.sync_config.get_enabled_fields()
+        sync_dry_run = dry_run if dry_run is not None else self.sync_config.dry_run
+        sync_batch_size = batch_size or self.sync_config.batch_size
+        
+        if not enabled_fields:
+            logger.warning("No fields are enabled for synchronization!")
+            result = SyncResult(success=True)
+            result.execution_time_seconds = 0.0
+            return result
+        
+        logger.info(f"🎯 Starting flexible sync for fields: {', '.join([f.value for f in enabled_fields])}")
+        
         start_time = time.time()
         sync_result = SyncResult(success=False)
         
         try:
-            logger.info("🔄 Starting inventory synchronization...")
+            logger.info(f"🔧 Sync Configuration:")
+            logger.info(f"  - Target fields: {', '.join([f.value for f in enabled_fields])}")
+            logger.info(f"  - Dry run mode: {sync_dry_run}")
+            logger.info(f"  - Batch size: {sync_batch_size} products")
             
             # Step 1: Load existing cache
             logger.info("📂 Loading inventory cache...")
@@ -144,12 +169,176 @@ class InventoryManager:
             sync_result.total_variants_checked = total_variants
             logger.info(f"📦 Found {len(current_products)} products with {total_variants} variants")
             
-            # Step 3: Detect inventory changes
-            logger.info("🔍 Analyzing inventory changes...")
-            changes = self.storage.detect_inventory_changes(current_products, cached_inventory)
+            # Step 3: Process products in batches with progressive cache updates
+            logger.info("🔍 Analyzing changes for enabled fields...")
+            all_changes = []
+            processed_products = 0
             
-            # Filter only variants that have changed
-            variants_to_update = [change for change in changes if change.has_changed]
+            # Process products in batches
+            for batch_start in range(0, len(current_products), sync_batch_size):
+                batch_end = min(batch_start + sync_batch_size, len(current_products))
+                product_batch = current_products[batch_start:batch_end]
+                
+                logger.info(f"📊 Processing batch {batch_start//sync_batch_size + 1}/{(len(current_products) + sync_batch_size - 1)//sync_batch_size}: products {batch_start + 1}-{batch_end}")
+                
+                # Detect changes for this batch
+                batch_changes = self.storage.detect_inventory_changes(product_batch, cached_inventory)
+                
+                # Filter changes to only include enabled fields
+                filtered_batch_changes = self._filter_changes_for_enabled_fields(batch_changes, enabled_fields)
+                all_changes.extend(filtered_batch_changes)
+                
+                # Update cache with this batch
+                cached_inventory = self.storage.update_cache_with_product_batch(product_batch, cached_inventory)
+                
+                # Save cache after each batch
+                cache_saved = self.storage.save_cache(cached_inventory)
+                if cache_saved:
+                    logger.info(f"💾 Cache saved after processing {batch_end} products")
+                else:
+                    logger.warning(f"⚠️  Failed to save cache after batch {batch_start//sync_batch_size + 1}")
+                
+                processed_products += len(product_batch)
+                
+                # Small delay between batches to avoid overwhelming the system
+                if batch_end < len(current_products):
+                    time.sleep(1.0)
+            
+            # Step 4: Analyze all changes
+            variants_to_update = [change for change in all_changes if change.has_changed]
+            sync_result.variants_updated = len(variants_to_update) if not sync_dry_run else 0
+            sync_result.products_with_changes = len(set(change.product_id for change in variants_to_update))
+            
+            logger.info(f"📊 Found {len(variants_to_update)} variants with changes for enabled fields in {sync_result.products_with_changes} products")
+            
+            if not variants_to_update:
+                logger.info("✅ No changes detected for enabled fields - nothing to update")
+                sync_result.success = True
+                sync_result.execution_time_seconds = time.time() - start_time
+                return sync_result
+            
+            # Log summary of changes instead of detailed list
+            self._log_changes_summary(variants_to_update, enabled_fields)
+            
+            if sync_dry_run:
+                logger.info("🧪 DRY RUN: Would update metafields for variants with changes")
+                sync_result.success = True
+                sync_result.execution_time_seconds = time.time() - start_time
+                return sync_result
+            
+            # Step 5: Update variant metafields for enabled fields only
+            logger.info(f"⚡ Updating variant metafields for enabled fields: {', '.join([f.value for f in enabled_fields])}")
+            updated_variants = self._update_variants_with_concurrency_and_retry(variants_to_update, enabled_fields)
+            
+            # Update sync result with actual updates
+            sync_result.updated_variants = updated_variants
+            successful_updates = len([u for u in updated_variants if u])
+            failed_updates = len(updated_variants) - successful_updates
+            
+            sync_result.variants_updated = successful_updates
+            sync_result.variants_failed = failed_updates
+            
+            # Log retry queue status
+            if self.retry_queue.size() > 0:
+                logger.warning(f"⚠️  {self.retry_queue.size()} variants remain in retry queue for future attempts")
+            
+            # Step 6: Final cache save
+            logger.info("💾 Ensuring final cache state is saved...")
+            cache_saved = self.storage.save_cache(cached_inventory)
+            
+            if not cache_saved:
+                sync_result.errors.append("Failed to save final cache state")
+            
+            # Final result
+            sync_result.success = successful_updates > 0 or len(variants_to_update) == 0
+            sync_result.execution_time_seconds = time.time() - start_time
+            
+            # Log concise summary of successful updates
+            if sync_result.variants_updated > 0:
+                self._log_successful_updates_summary(updated_variants, enabled_fields)
+            
+            # Log summary
+            logger.info("📋 Flexible sync completed!")
+            logger.info(f"  ✅ Variants updated: {sync_result.variants_updated}")
+            logger.info(f"  ❌ Variants failed: {sync_result.variants_failed}")
+            logger.info(f"  🎯 Fields synced: {', '.join([f.value for f in enabled_fields])}")
+            logger.info(f"  ⏱️  Execution time: {sync_result.execution_time_seconds:.2f} seconds")
+            
+            return sync_result
+            
+        except Exception as e:
+            logger.error(f"💥 Flexible sync failed: {e}")
+            sync_result.success = False
+            sync_result.errors.append(str(e))
+            sync_result.execution_time_seconds = time.time() - start_time
+            return sync_result
+    
+    def sync_inventory_to_metafields(self, dry_run: bool = False, batch_size: int = 50) -> SyncResult:
+        """
+        Main method to sync inventory quantities to variant metafields with progressive cache saves
+        
+        Args:
+            dry_run: If True, only analyze changes without making updates
+            batch_size: Number of products to process before saving cache (default: 50)
+            
+        Returns:
+            SyncResult with detailed statistics and results
+        """
+        start_time = time.time()
+        sync_result = SyncResult(success=False)
+        
+        try:
+            logger.info("🔄 Starting inventory synchronization...")
+            logger.info(f"📦 Using batch size of {batch_size} products for progressive cache saves")
+            
+            # Step 1: Load existing cache
+            logger.info("📂 Loading inventory cache...")
+            cached_inventory = self.storage.load_cache()
+            
+            # Step 2: Fetch current products and variants from Shopify
+            logger.info("🏪 Fetching active products from Shopify...")
+            current_products = self.shopify_client.get_all_active_products_with_variants()
+            sync_result.total_products_processed = len(current_products)
+            
+            # Count total variants
+            total_variants = sum(len(product.get('variants', [])) for product in current_products)
+            sync_result.total_variants_checked = total_variants
+            logger.info(f"📦 Found {len(current_products)} products with {total_variants} variants")
+            
+            # Step 3: Process products in batches with progressive cache updates
+            logger.info("🔍 Analyzing inventory changes and updating cache progressively...")
+            all_changes = []
+            processed_products = 0
+            
+            # Process products in batches
+            for batch_start in range(0, len(current_products), batch_size):
+                batch_end = min(batch_start + batch_size, len(current_products))
+                product_batch = current_products[batch_start:batch_end]
+                
+                logger.info(f"📊 Processing batch {batch_start//batch_size + 1}/{(len(current_products) + batch_size - 1)//batch_size}: products {batch_start + 1}-{batch_end}")
+                
+                # Detect changes for this batch
+                batch_changes = self.storage.detect_inventory_changes(product_batch, cached_inventory)
+                all_changes.extend(batch_changes)
+                
+                # Update cache with this batch
+                cached_inventory = self.storage.update_cache_with_product_batch(product_batch, cached_inventory)
+                
+                # Save cache after each batch
+                cache_saved = self.storage.save_cache(cached_inventory)
+                if cache_saved:
+                    logger.info(f"💾 Cache saved after processing {batch_end} products")
+                else:
+                    logger.warning(f"⚠️  Failed to save cache after batch {batch_start//batch_size + 1}")
+                
+                processed_products += len(product_batch)
+                
+                # Small delay between batches to avoid overwhelming the system
+                if batch_end < len(current_products):
+                    time.sleep(1.0)
+            
+            # Step 4: Analyze all changes
+            variants_to_update = [change for change in all_changes if change.has_changed]
             sync_result.variants_updated = len(variants_to_update) if not dry_run else 0
             sync_result.products_with_changes = len(set(change.product_id for change in variants_to_update))
             
@@ -195,13 +384,13 @@ class InventoryManager:
             if self.retry_queue.size() > 0:
                 logger.warning(f"⚠️  {self.retry_queue.size()} variants remain in retry queue for future attempts")
             
-            # Step 5: Update cache with current data
-            logger.info("💾 Updating inventory cache...")
-            updated_cache = self.storage.update_cache_with_current_data(current_products, cached_inventory)
-            cache_saved = self.storage.save_cache(updated_cache)
+            # Step 5: Final cache save (already done incrementally, but ensure final state is saved)
+            logger.info("💾 Ensuring final cache state is saved...")
+            # Cache was already updated during batch processing, just need a final save to be sure
+            cache_saved = self.storage.save_cache(cached_inventory)
             
             if not cache_saved:
-                sync_result.errors.append("Failed to save updated cache")
+                sync_result.errors.append("Failed to save final cache state")
             
             # Final result
             sync_result.success = successful_updates > 0 or len(variants_to_update) == 0
@@ -257,26 +446,153 @@ class InventoryManager:
             sync_result.execution_time_seconds = time.time() - start_time
             return sync_result
     
-    def _update_variants_with_concurrency_and_retry(self, variants_to_update: List[InventoryChangeDetection]) -> List[Optional[VariantUpdate]]:
-        """Update variants with concurrent processing and retry mechanism"""
+    def _filter_changes_for_enabled_fields(self, changes: List[InventoryChangeDetection], 
+                                          enabled_fields: Set[SyncField]) -> List[InventoryChangeDetection]:
+        """Filter inventory changes to only include enabled fields"""
+        filtered_changes = []
+        
+        for change in changes:
+            # Filter the changed_fields to only include enabled ones
+            filtered_changed_fields = [
+                field for field in change.changed_fields 
+                if SyncField(field) in enabled_fields
+            ]
+            
+            if filtered_changed_fields:
+                # Create a new change object with only the enabled fields
+                filtered_change = InventoryChangeDetection(
+                    variant_id=change.variant_id,
+                    product_id=change.product_id,
+                    product_title=change.product_title,
+                    variant_title=change.variant_title,
+                    old_quantity=change.old_quantity,
+                    new_quantity=change.new_quantity,
+                    old_price=change.old_price,
+                    new_price=change.new_price,
+                    old_compare_at_price=change.old_compare_at_price,
+                    new_compare_at_price=change.new_compare_at_price,
+                    has_changed=True,  # Has changes in enabled fields
+                    changed_fields=filtered_changed_fields
+                )
+                filtered_changes.append(filtered_change)
+            else:
+                # No changes in enabled fields, add with has_changed=False
+                no_change = InventoryChangeDetection(
+                    variant_id=change.variant_id,
+                    product_id=change.product_id,
+                    product_title=change.product_title,
+                    variant_title=change.variant_title,
+                    old_quantity=change.old_quantity,
+                    new_quantity=change.new_quantity,
+                    old_price=change.old_price,
+                    new_price=change.new_price,
+                    old_compare_at_price=change.old_compare_at_price,
+                    new_compare_at_price=change.new_compare_at_price,
+                    has_changed=False,
+                    changed_fields=[]
+                )
+                filtered_changes.append(no_change)
+        
+        return filtered_changes
+    
+    def _log_changes_summary(self, variants_to_update: List[InventoryChangeDetection], 
+                            enabled_fields: Set[SyncField]):
+        """Log concise summary of field changes"""
+        field_counts = {}
+        product_counts = len(set(change.product_id for change in variants_to_update))
+        
+        for change in variants_to_update:
+            for field in change.changed_fields:
+                if SyncField(field) in enabled_fields:
+                    field_counts[field] = field_counts.get(field, 0) + 1
+        
+        logger.info("📋 Changes summary:")
+        logger.info(f"  - Products with changes: {product_counts}")
+        logger.info(f"  - Total variants to update: {len(variants_to_update)}")
+        
+        if field_counts:
+            changes_str = []
+            for field, count in field_counts.items():
+                changes_str.append(f"{field}: {count}")
+            logger.info(f"  - Field changes: {', '.join(changes_str)}")
+        
+        # Show a few examples
+        if len(variants_to_update) > 0:
+            logger.info("  - Examples:")
+            for i, change in enumerate(variants_to_update[:3], 1):
+                field_changes = []
+                for field in change.changed_fields:
+                    if SyncField(field) in enabled_fields:
+                        if field == 'inventory':
+                            field_changes.append(f"qty:{change.old_quantity}→{change.new_quantity}")
+                        elif field == 'price':
+                            field_changes.append(f"€{change.old_price}→€{change.new_price}")
+                        elif field == 'compare_price':
+                            field_changes.append(f"comp:€{change.old_compare_at_price}→€{change.new_compare_at_price}")
+                
+                logger.info(f"    [{i}] {change.product_title}: {', '.join(field_changes)}")
+            
+            if len(variants_to_update) > 3:
+                logger.info(f"    ... and {len(variants_to_update) - 3} more variants")
+    
+    def _log_successful_updates_summary(self, updated_variants: List[Optional[VariantUpdate]], 
+                                       enabled_fields: Set[SyncField]):
+        """Log concise summary of successful updates"""
+        successful_updates = [u for u in updated_variants if u]
+        
+        if successful_updates:
+            # Count updates by field
+            field_update_counts = {}
+            for update in successful_updates:
+                for field in update.updated_fields:
+                    if SyncField(field) in enabled_fields:
+                        field_update_counts[field] = field_update_counts.get(field, 0) + 1
+            
+            logger.info("📋 Update results:")
+            logger.info(f"  - Total variants updated: {len(successful_updates)}")
+            
+            if field_update_counts:
+                updates_str = []
+                for field, count in field_update_counts.items():
+                    updates_str.append(f"{field}: {count}")
+                logger.info(f"  - Field updates: {', '.join(updates_str)}")
+            
+            # Show just a few examples
+            logger.info("  - Sample updates:")
+            for i, update in enumerate(successful_updates[:3], 1):
+                enabled_updated_fields = [f for f in update.updated_fields if SyncField(f) in enabled_fields]
+                metafields_str = ', '.join([f'{self.namespace}.{field}' for field in enabled_updated_fields])
+                logger.info(f"    [{i}] Variant {update.variant_id}: {metafields_str}")
+            
+            if len(successful_updates) > 3:
+                logger.info(f"    ... and {len(successful_updates) - 3} more variants")
+
+    def _update_variants_with_concurrency_and_retry(self, variants_to_update: List[InventoryChangeDetection], 
+                                                   enabled_fields: Optional[Set[SyncField]] = None) -> List[Optional[VariantUpdate]]:
+        """Update variants with concurrent processing and retry mechanism for specific fields"""
         all_updates = []
+        
+        # Use all fields if none specified (for backward compatibility)
+        if enabled_fields is None:
+            enabled_fields = {SyncField.INVENTORY, SyncField.PRICE, SyncField.COMPARE_PRICE}
         
         # First, process any pending retries from previous runs
         ready_retries = self.retry_queue.get_ready_retries()
         if ready_retries:
             logger.info(f"🔄 Processing {len(ready_retries)} pending retries first...")
             retry_variants = [failed_update.variant_change for failed_update in ready_retries]
-            retry_updates = self._update_variants_with_concurrency(retry_variants, is_retry=True)
+            retry_updates = self._update_variants_with_concurrency(retry_variants, enabled_fields, is_retry=True)
             all_updates.extend(retry_updates)
         
         # Then process new variants
         if variants_to_update:
-            new_updates = self._update_variants_with_concurrency(variants_to_update, is_retry=False)
+            new_updates = self._update_variants_with_concurrency(variants_to_update, enabled_fields, is_retry=False)
             all_updates.extend(new_updates)
         
         return all_updates
     
-    def _update_variants_with_concurrency(self, variants_to_update: List[InventoryChangeDetection], is_retry: bool = False) -> List[Optional[VariantUpdate]]:
+    def _update_variants_with_concurrency(self, variants_to_update: List[InventoryChangeDetection], 
+                                         enabled_fields: Set[SyncField], is_retry: bool = False) -> List[Optional[VariantUpdate]]:
         """Update variants with concurrent processing per product"""
         all_updates = []
         
@@ -288,36 +604,40 @@ class InventoryManager:
                 products_to_update[product_id] = []
             products_to_update[product_id].append(variant_change)
         
-        logger.info(f"🔄 Processing {len(products_to_update)} products with inventory changes...")
+        logger.info(f"🔄 Updating variants in {len(products_to_update)} products...")
         
         # Process each product's variants (products sequentially, variants within product concurrently)
         for i, (product_id, product_variants) in enumerate(products_to_update.items(), 1):
             product_title = product_variants[0].product_title if product_variants else "Unknown"
-            retry_prefix = "🔄 [RETRY] " if is_retry else ""
-            logger.info(f"  📦 {retry_prefix}[{i}/{len(products_to_update)}] Updating {len(product_variants)} variants in '{product_title}'...")
+            
+            # Only log every 5th product or if there are few products
+            if len(products_to_update) <= 5 or i % 5 == 0 or i == len(products_to_update):
+                retry_prefix = "🔄 [RETRY] " if is_retry else ""
+                logger.info(f"  📦 {retry_prefix}[{i}/{len(products_to_update)}] Processing '{product_title}' ({len(product_variants)} variants)")
             
             # Update this product's variants concurrently
-            product_updates = self._update_product_variants_concurrently(product_variants, is_retry)
+            product_updates = self._update_product_variants_concurrently(product_variants, enabled_fields, is_retry)
             all_updates.extend(product_updates)
             
-            # Small delay between products to avoid overwhelming the API
+            # Increased delay between products to avoid overwhelming the API
             if i < len(products_to_update):  # Don't delay after the last product
-                time.sleep(0.5)
+                time.sleep(1.0)  # Increased from 0.5 to 1.0 seconds
         
         return all_updates
     
-    def _update_product_variants_concurrently(self, variants: List[InventoryChangeDetection], is_retry: bool = False) -> List[Optional[VariantUpdate]]:
+    def _update_product_variants_concurrently(self, variants: List[InventoryChangeDetection], 
+                                             enabled_fields: Set[SyncField], is_retry: bool = False) -> List[Optional[VariantUpdate]]:
         """Update variants for a single product concurrently"""
         updates = []
         
         # Use ThreadPoolExecutor for concurrent variant updates within this product
-        max_workers = min(len(variants), 5)  # Limit concurrent requests per product
+        max_workers = min(len(variants), 2)  # Reduced concurrency to avoid rate limits
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all variant update tasks
             future_to_variant = {}
             for variant_change in variants:
-                future = executor.submit(self._update_single_variant_metafield, variant_change)
+                future = executor.submit(self._update_single_variant_metafield, variant_change, enabled_fields)
                 future_to_variant[future] = variant_change
             
             # Collect results as they complete
@@ -328,9 +648,7 @@ class InventoryManager:
                     updates.append(variant_update)
                     
                     if variant_update:
-                        logger.info(f"    ✅ Updated variant {variant_change.variant_id}: {variant_change.change_description}")
-                        logger.debug(f"         Product: {variant_change.product_title}")
-                        logger.debug(f"         Updated fields: {', '.join(variant_change.changed_fields)}")
+                        logger.debug(f"    ✅ Updated variant {variant_change.variant_id}: {variant_change.change_description}")
                     else:
                         # Build detailed variant info for failed updates
                         variant_info_parts = []
@@ -353,35 +671,43 @@ class InventoryManager:
                         self.retry_queue.add_failed_update(variant_change, str(e))
         
         successful_updates = len([u for u in updates if u])
-        logger.info(f"    📊 Product result: {successful_updates}/{len(variants)} variants updated successfully")
+        if successful_updates < len(variants):
+            logger.info(f"    📊 Product result: {successful_updates}/{len(variants)} variants updated successfully")
+        else:
+            logger.debug(f"    📊 Product result: {successful_updates}/{len(variants)} variants updated successfully")
         
         return updates
     
-    def _update_single_variant_metafield(self, variant_change: InventoryChangeDetection) -> Tuple[Optional[VariantUpdate], Optional[str]]:
+    def _update_single_variant_metafield(self, variant_change: InventoryChangeDetection, 
+                                        enabled_fields: Set[SyncField]) -> Tuple[Optional[VariantUpdate], Optional[str]]:
         """Update metafields for a single variant (inventory, price, compare_price)"""
         updated_fields = []
         errors = []
         
         try:
-            # Update each changed field
+            # Update each changed field, but only if it's in the enabled fields
             for field in variant_change.changed_fields:
+                # Skip this field if it's not enabled for sync
+                if SyncField(field) not in enabled_fields:
+                    continue
+                    
                 field_success = False
                 
-                if field == 'inventory':
+                if field == 'inventory' and SyncField.INVENTORY in enabled_fields:
                     field_success = self.shopify_client.update_variant_metafield(
                         variant_id=variant_change.variant_id,
                         namespace=self.namespace,
                         key=self.inventory_key,
                         value=str(variant_change.new_quantity)
                     )
-                elif field == 'price':
+                elif field == 'price' and SyncField.PRICE in enabled_fields:
                     field_success = self.shopify_client.update_variant_metafield(
                         variant_id=variant_change.variant_id,
                         namespace=self.namespace,
                         key=self.price_key,
                         value=str(variant_change.new_price) if variant_change.new_price else "0.00"
                     )
-                elif field == 'compare_at_price':
+                elif field == 'compare_price' and SyncField.COMPARE_PRICE in enabled_fields:
                     field_success = self.shopify_client.update_variant_metafield(
                         variant_id=variant_change.variant_id,
                         namespace=self.namespace,
