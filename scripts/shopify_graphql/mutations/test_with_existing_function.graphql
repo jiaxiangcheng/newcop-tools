@@ -1,0 +1,18 @@
+mutation {
+  discountCodeAppCreate(codeAppDiscount: {
+    title: "Test Newcop 10€ newsletter discount",
+    code: "TESTCODE10",
+    startsAt: "2025-01-10",
+    functionId: "b277d742-68ae-4ab2-853e-a015367aebd3",
+    discountClasses: [PRODUCT, ORDER, SHIPPING]
+  }) {
+    codeAppDiscount {
+      discountId
+      title
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

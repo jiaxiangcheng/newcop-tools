@@ -1,0 +1,40 @@
+mutation {
+  discountCodeBasicCreate(basicCodeDiscount: {
+    title: "Test Basic Discount",
+    code: "TESTBASIC10",
+    startsAt: "2025-01-10",
+    usageLimit: 100,
+    customerSelection: {
+      all: true
+    },
+    customerGets: {
+      value: {
+        discountAmount: {
+          amount: "10.0",
+          appliesOnEachItem: false
+        }
+      },
+      items: {
+        all: true
+      }
+    }
+  }) {
+    codeDiscountNode {
+      id
+      codeDiscount {
+        ... on DiscountCodeBasic {
+          title
+          codes(first: 1) {
+            nodes {
+              code
+            }
+          }
+        }
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

@@ -1,0 +1,42 @@
+mutation {
+  discountCodeBasicCreate(basicCodeDiscount: {
+    title: "GraphQL Test Discount",
+    code: "GRAPHQLTEST2025",
+    startsAt: "2025-01-10",
+    endsAt: "2025-12-31",
+    usageLimit: 50,
+    customerSelection: {
+      all: true
+    },
+    customerGets: {
+      value: {
+        discountAmount: {
+          amount: "5.0",
+          appliesOnEachItem: false
+        }
+      },
+      items: {
+        all: true
+      }
+    }
+  }) {
+    codeDiscountNode {
+      id
+      codeDiscount {
+        ... on DiscountCodeBasic {
+          title
+          codes(first: 1) {
+            nodes {
+              code
+            }
+          }
+          summary
+        }
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
