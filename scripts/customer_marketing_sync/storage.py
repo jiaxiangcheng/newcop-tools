@@ -13,18 +13,19 @@ from scripts.customer_marketing_sync.models import (
     CustomerMarketingCache,
     MarketingChangeDetection
 )
+from shared.cache_utils import get_customer_marketing_cache_path
 
 logger = logging.getLogger('customer_marketing_sync')
 
 def get_customer_email_marketing_status(customer_data: dict) -> bool:
     """
     Get email marketing subscription status from the current Shopify API.
-    
+
     Uses email_marketing_consent.state field (available since API 2022-04).
-    
+
     Args:
         customer_data: Customer data dictionary from Shopify API
-        
+
     Returns:
         bool: True if customer is subscribed to email marketing, False otherwise
     """
@@ -32,27 +33,35 @@ def get_customer_email_marketing_status(customer_data: dict) -> bool:
     if customer_data is None:
         logger.warning("Customer data is None, defaulting to False for email marketing status")
         return False
-        
-    email_marketing_consent = customer_data.get('email_marketing_consent', {})
+
+    email_marketing_consent = customer_data.get('email_marketing_consent')
+
+    # Handle None email_marketing_consent (some customers might not have this field)
+    if email_marketing_consent is None:
+        # Fall back to legacy accepts_marketing field if email_marketing_consent is not available
+        accepts_marketing = customer_data.get('accepts_marketing', False)
+        logger.debug(f"Customer {customer_data.get('id', 'unknown')} has no email_marketing_consent, using accepts_marketing: {accepts_marketing}")
+        return bool(accepts_marketing)
+
     marketing_state = email_marketing_consent.get('state')
-    
+
     if marketing_state in ['subscribed', 'pending']:
         return True
     elif marketing_state == 'not_subscribed':
         return False
     else:
-        # Default to False if state is unknown or missing
+        # Default to False if state is unknown or missing, but log for debugging
+        logger.debug(f"Customer {customer_data.get('id', 'unknown')} has unknown marketing state: {marketing_state}")
         return False
 
 class CustomerMarketingStorage:
     """Manages local JSON cache for customer marketing subscription state"""
     
-    def __init__(self, cache_file_path: Optional[str] = None):
-        # Default cache file location
+    def __init__(self, cache_file_path: Optional[str] = None, shopify_domain: Optional[str] = None):
+        # Default cache file location - now domain-specific
         if cache_file_path is None:
-            project_root = Path(__file__).parent.parent.parent
-            cache_file_path = project_root / "data" / "customer_marketing_cache.json"
-        
+            cache_file_path = get_customer_marketing_cache_path(shopify_domain)
+
         self.cache_file_path = Path(cache_file_path)
         self.cache_file_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -197,8 +206,10 @@ class CustomerMarketingStorage:
             email_subscribed = get_customer_email_marketing_status(customer)
             
             # Get marketing opt in level from email_marketing_consent
-            email_marketing_consent = customer.get('email_marketing_consent', {})
-            marketing_opt_in_level = email_marketing_consent.get('opt_in_level')
+            email_marketing_consent = customer.get('email_marketing_consent')
+            marketing_opt_in_level = None
+            if email_marketing_consent:
+                marketing_opt_in_level = email_marketing_consent.get('opt_in_level')
             
             # Create or update customer cache entry
             customer_cache = CustomerMarketingCache(

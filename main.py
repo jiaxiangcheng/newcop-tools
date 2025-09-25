@@ -53,7 +53,7 @@ def show_menu():
     """Display the main menu options"""
     print("\n📋 Available Scripts:")
     print("1. 🔄 Dynamic Collections - Auto-update Shopify collections based on Airtable sales data")
-    print(f"2. 📦 Inventory Sync - Sync inventory quantities to variant metafields every {inventory_sync_interval_hours} hours")
+    print(f"2. 📦 Variant Sync - Sync inventory quantities, price or compare price to variant metafields every {inventory_sync_interval_hours} hours")
     print(f"3. 👥 Customer Marketing Sync - Sync customer marketing preferences to metafields every {customer_marketing_sync_interval_hours} hours")
     print("4. 🚀 More scripts coming soon...")
     print("\n0. 🚪 Exit")

@@ -9,11 +9,12 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from scripts.inventory_sync.models import (
-    InventoryCache, 
-    ProductInventoryCache, 
-    VariantInventory, 
+    InventoryCache,
+    ProductInventoryCache,
+    VariantInventory,
     InventoryChangeDetection
 )
+from shared.cache_utils import get_inventory_cache_path
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,11 @@ logger.setLevel(logging.INFO)
 class InventoryStorage:
     """Manages local JSON cache for inventory state"""
     
-    def __init__(self, cache_file_path: Optional[str] = None):
-        # Default cache file location
+    def __init__(self, cache_file_path: Optional[str] = None, shopify_domain: Optional[str] = None):
+        # Default cache file location - now domain-specific
         if cache_file_path is None:
-            project_root = Path(__file__).parent.parent.parent
-            cache_file_path = project_root / "data" / "inventory_cache.json"
-        
+            cache_file_path = get_inventory_cache_path(shopify_domain)
+
         self.cache_file_path = Path(cache_file_path)
         self.cache_file_path.parent.mkdir(parents=True, exist_ok=True)
         

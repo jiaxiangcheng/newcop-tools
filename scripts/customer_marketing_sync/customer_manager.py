@@ -321,67 +321,99 @@ class CustomerManager:
     def _process_customer_batch(self, customer_batch: List[dict], batch_start_idx: int):
         """
         Process a batch of customers: detect changes and update metafields immediately
-        
+
         Args:
             customer_batch: List of customer dictionaries from Shopify
             batch_start_idx: Starting index of this batch in the overall customer list
         """
         try:
+            # Handle empty or None batch
+            if not customer_batch:
+                logger.warning(f"Received empty customer batch at index {batch_start_idx}")
+                return
+
+            # Filter out None customers from the batch
+            valid_customers = [customer for customer in customer_batch if customer is not None]
+            if len(valid_customers) != len(customer_batch):
+                logger.warning(f"Filtered out {len(customer_batch) - len(valid_customers)} None customers from batch")
+
+            if not valid_customers:
+                logger.warning(f"No valid customers in batch starting at {batch_start_idx}")
+                return
+
             # Load current cache
             cached_marketing = self.storage.load_cache()
-            
+
             # Detect changes for this batch
-            changes = self.storage.detect_marketing_changes(customer_batch, cached_marketing)
+            changes = self.storage.detect_marketing_changes(valid_customers, cached_marketing)
             customers_to_update = [change for change in changes if change.has_changed]
-            
+
             if not customers_to_update:
-                logger.info(f"📄 Batch processed: {len(customer_batch)} customers, no changes detected")
+                logger.info(f"📄 Batch processed: {len(valid_customers)} customers, no changes detected")
                 return
-            
-            logger.info(f"🔄 Processing batch: {len(customers_to_update)} customers with changes out of {len(customer_batch)} total")
-            
+
+            logger.info(f"🔄 Processing batch: {len(customers_to_update)} customers with changes out of {len(valid_customers)} total")
+
             # Update total processed count (customers with changes that we need to process)
             self.total_processed += len(customers_to_update)
-            
+
             # Update metafields for customers with changes
             updated_customers = self._update_customers_with_concurrency(customers_to_update, is_retry=False)
-            
+
             # Update counters
             successful_updates = len([u for u in updated_customers if u])
             failed_updates = len(updated_customers) - successful_updates
-            
+
             self.total_updated += successful_updates
             self.total_failed += failed_updates
             self.all_updated_customers.extend([u for u in updated_customers if u])
-            
+
             # Update cache incrementally with this batch
-            updated_cache = self.storage.update_cache_with_current_data(customer_batch, cached_marketing)
+            updated_cache = self.storage.update_cache_with_current_data(valid_customers, cached_marketing)
             self.storage.save_cache(updated_cache)
-            
+
         except Exception as e:
-            logger.error(f"💥 Error processing batch {batch_start_idx + 1}-{batch_start_idx + len(customer_batch)}: {e}")
+            logger.error(f"💥 Error processing batch {batch_start_idx + 1}-{batch_start_idx + len(customer_batch if customer_batch else [])}: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
     
     def _analyze_customer_batch(self, customer_batch: List[dict], batch_start_idx: int):
         """
         Analyze a batch of customers for changes (DRY RUN mode)
-        
+
         Args:
             customer_batch: List of customer dictionaries from Shopify
             batch_start_idx: Starting index of this batch in the overall customer list
         """
         try:
+            # Handle empty or None batch
+            if not customer_batch:
+                logger.warning(f"Received empty customer batch at index {batch_start_idx}")
+                return
+
+            # Filter out None customers from the batch
+            valid_customers = [customer for customer in customer_batch if customer is not None]
+            if len(valid_customers) != len(customer_batch):
+                logger.warning(f"Filtered out {len(customer_batch) - len(valid_customers)} None customers from batch")
+
+            if not valid_customers:
+                logger.warning(f"No valid customers in batch starting at {batch_start_idx}")
+                return
+
             # Load current cache
             cached_marketing = self.storage.load_cache()
-            
+
             # Detect changes for this batch
-            changes = self.storage.detect_marketing_changes(customer_batch, cached_marketing)
+            changes = self.storage.detect_marketing_changes(valid_customers, cached_marketing)
             customers_to_update = [change for change in changes if change.has_changed]
-            
+
             if not customers_to_update:
-                logger.info(f"📄 DRY RUN: Analyzed {len(customer_batch)} customers, no changes detected")
+                logger.info(f"📄 DRY RUN: Analyzed {len(valid_customers)} customers, no changes detected")
             else:
-                logger.info(f"🧪 DRY RUN: Would update {len(customers_to_update)} customers with changes out of {len(customer_batch)} total")
+                logger.info(f"🧪 DRY RUN: Would update {len(customers_to_update)} customers with changes out of {len(valid_customers)} total")
                 self.total_processed += len(customers_to_update)
-            
+
         except Exception as e:
-            logger.error(f"💥 Error analyzing batch {batch_start_idx + 1}-{batch_start_idx + len(customer_batch)}: {e}")
+            logger.error(f"💥 Error analyzing batch {batch_start_idx + 1}-{batch_start_idx + len(customer_batch if customer_batch else [])}: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
