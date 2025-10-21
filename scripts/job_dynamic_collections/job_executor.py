@@ -5,10 +5,10 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.dynamic_collections.models import TopResellProductsJobSettings, SalesRecord, CollectionWithJobSettings
+from scripts.job_dynamic_collections.models import TopResellProductsJobSettings, SalesRecord, CollectionWithJobSettings
 from shared.airtable_client import AirtableClient
 from shared.shopify_client import ShopifyClient
-from scripts.dynamic_collections.product_filter import ProductFilter
+from scripts.job_dynamic_collections.product_filter import ProductFilter
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

@@ -66,7 +66,7 @@ def run_dynamic_collections() -> bool:
         print("=" * 60)
         
         # Get interval from environment variable
-        dynamic_collections_interval_days = os.getenv("DYNAMIC_COLLECTIONS_INTERVAL_DAYS", "15")
+        dynamic_collections_interval_days = os.getenv("DYNAMIC_COLLECTIONS_INTERVAL_DAYS", "1")
         
         # Ask user for execution mode
         print("Select execution mode:")
@@ -83,7 +83,7 @@ def run_dynamic_collections() -> bool:
                     return True  # Return to main menu
                 elif mode_choice == "1":
                     # Manual sync
-                    from scripts.dynamic_collections.main import run_dynamic_collections
+                    from scripts.job_dynamic_collections.main import run_dynamic_collections
                     success = run_dynamic_collections(mode="manual", dry_run=False)
                     break
                 elif mode_choice == "2":
@@ -91,14 +91,14 @@ def run_dynamic_collections() -> bool:
                     print(f"\n⚠️  Scheduled mode will run continuously every {dynamic_collections_interval_days} days. Press Ctrl+C to stop.")
                     confirm = input("Continue? (y/N): ").strip().lower()
                     if confirm in ['y', 'yes']:
-                        from scripts.dynamic_collections.main import run_dynamic_collections
+                        from scripts.job_dynamic_collections.main import run_dynamic_collections
                         success = run_dynamic_collections(mode="scheduled", dry_run=False)
                     else:
                         success = True  # User cancelled
                     break
                 elif mode_choice == "3":
                     # Dry run
-                    from scripts.dynamic_collections.main import run_dynamic_collections
+                    from scripts.job_dynamic_collections.main import run_dynamic_collections
                     success = run_dynamic_collections(mode="manual", dry_run=True)
                     break
                 else:
@@ -150,7 +150,7 @@ def run_inventory_sync() -> bool:
                     return True  # Return to main menu
                 elif mode_choice == "1":
                     # Manual sync
-                    from scripts.inventory_sync.main import run_inventory_sync
+                    from scripts.job_inventory_sync.main import run_inventory_sync
                     success = run_inventory_sync(mode="manual", dry_run=False, sync_fields=None, sync_config=None)
                     break
                 elif mode_choice == "2":
@@ -158,14 +158,14 @@ def run_inventory_sync() -> bool:
                     print(f"\n⚠️  Scheduled mode will run continuously every {interval_display}. Press Ctrl+C to stop.")
                     confirm = input("Continue? (y/N): ").strip().lower()
                     if confirm in ['y', 'yes']:
-                        from scripts.inventory_sync.main import run_inventory_sync
+                        from scripts.job_inventory_sync.main import run_inventory_sync
                         success = run_inventory_sync(mode="scheduled", dry_run=False, sync_fields=None, sync_config=None)
                     else:
                         success = True  # User cancelled
                     break
                 elif mode_choice == "3":
                     # Dry run
-                    from scripts.inventory_sync.main import run_inventory_sync
+                    from scripts.job_inventory_sync.main import run_inventory_sync
                     success = run_inventory_sync(mode="manual", dry_run=True, sync_fields=None, sync_config=None)
                     break
                 else:

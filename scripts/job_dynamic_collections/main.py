@@ -29,8 +29,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from shared.shopify_client import ShopifyClient
 from shared.logger import setup_logger
-from scripts.dynamic_collections.models import CollectionWithJobSettings
-from scripts.dynamic_collections.job_executor import JobExecutorFactory
+from scripts.job_dynamic_collections.models import CollectionWithJobSettings
+from scripts.job_dynamic_collections.job_executor import JobExecutorFactory
 
 # Load environment variables
 load_dotenv()
@@ -41,8 +41,8 @@ logger = setup_logger('dynamic_collections', 'dynamic_collection.log')
 # Also configure related loggers to use the same settings
 related_loggers = [
     'shared.shopify_client',
-    'scripts.dynamic_collections.job_executor',
-    'scripts.dynamic_collections.product_filter'
+    'scripts.job_dynamic_collections.job_executor',
+    'scripts.job_dynamic_collections.product_filter'
 ]
 
 for logger_name in related_loggers:
@@ -63,7 +63,7 @@ class DynamicCollectionManager:
         self.dry_run = dry_run
         
         # Scheduling configuration
-        self.sync_interval_days = int(os.getenv("DYNAMIC_COLLECTIONS_INTERVAL_DAYS", "15"))
+        self.sync_interval_days = int(os.getenv("DYNAMIC_COLLECTIONS_INTERVAL_DAYS", "1"))
         
         # Initialize clients
         self.shopify_client = ShopifyClient(self.shopify_admin_token, self.shopify_shop_domain)

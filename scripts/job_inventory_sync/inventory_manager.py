@@ -12,7 +12,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from shared.shopify_client import ShopifyClient
-from scripts.inventory_sync.models import (
+from scripts.job_inventory_sync.models import (
     InventoryCache, 
     SyncResult, 
     VariantUpdate, 
@@ -21,7 +21,7 @@ from scripts.inventory_sync.models import (
     SyncField,
     SyncMode
 )
-from scripts.inventory_sync.storage import InventoryStorage
+from scripts.job_inventory_sync.storage import InventoryStorage
 
 logger = logging.getLogger(__name__)
 
