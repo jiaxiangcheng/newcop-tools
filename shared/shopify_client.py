@@ -1364,17 +1364,246 @@ class ShopifyClient:
     def get_customer_metafields(self, customer_id: int) -> List[Dict[str, Any]]:
         """Get all metafields for a specific customer"""
         url = f"{self.base_url}/customers/{customer_id}/metafields.json"
-        
+
         try:
             response = requests.get(url, headers=self.headers)
             response.raise_for_status()
-            
+
             data = response.json()
             metafields = data.get("metafields", [])
-            
+
             logger.debug(f"Found {len(metafields)} metafields for customer {customer_id}")
             return metafields
-            
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching metafields for customer {customer_id}: {e}")
             raise
+
+    # GraphQL API Methods
+
+    def execute_graphql(self, query: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Execute a GraphQL query or mutation against Shopify Admin API
+
+        Args:
+            query: GraphQL query or mutation string
+            variables: Optional variables for the query
+
+        Returns:
+            GraphQL response data
+        """
+        url = f"{self.base_url}/graphql.json"
+
+        payload = {"query": query}
+        if variables:
+            payload["variables"] = variables
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"GraphQL request failed: {e}")
+            return {"errors": [{"message": f"Request failed: {str(e)}"}]}
+
+    def get_order_details_graphql(self, order_reference: str) -> Optional[Dict[str, Any]]:
+        """
+        Get order details using GraphQL API
+
+        Args:
+            order_reference: Either an order number (e.g., "79415") or a Shopify ID
+
+        Returns:
+            Order data dictionary or None if not found
+        """
+        # Determine if order_reference is an order number or Shopify ID
+        order_id = self._convert_to_order_gid(order_reference)
+
+        if not order_id:
+            logger.warning(f"Invalid order reference: {order_reference}")
+            return None
+
+        # GraphQL query to fetch order details
+        query = """
+        query getOrderDetails($orderId: ID!) {
+          order(id: $orderId) {
+            id
+            name
+            createdAt
+            displayFinancialStatus
+            displayFulfillmentStatus
+            cancelledAt
+            lineItems(first: 10) {
+              edges {
+                node {
+                  title
+                  variantTitle
+                  sku
+                  quantity
+                }
+              }
+            }
+            customer {
+              id
+              email
+              firstName
+              lastName
+              phone
+              numberOfOrders
+              defaultAddress {
+                countryCode
+              }
+            }
+            customerJourneySummary {
+              firstVisit {
+                source
+                sourceDescription
+                utmParameters {
+                  source
+                  medium
+                  campaign
+                  term
+                  content
+                }
+              }
+            }
+          }
+        }
+        """
+
+        variables = {"orderId": order_id}
+
+        try:
+            response = self.execute_graphql(query, variables)
+
+            # Check for errors
+            if "errors" in response:
+                error_messages = [err.get("message", "Unknown error") for err in response["errors"]]
+                logger.warning(f"GraphQL errors for order {order_reference}: {', '.join(error_messages)}")
+                return None
+
+            # Extract order data
+            order_data = response.get("data", {}).get("order")
+
+            if not order_data:
+                logger.warning(f"Order not found: {order_reference}")
+                return None
+
+            # Process customer data - extract shipping country from defaultAddress
+            if order_data.get("customer") and order_data["customer"].get("defaultAddress"):
+                country_code = order_data["customer"]["defaultAddress"].get("countryCode")
+                order_data["customer"]["shipping_country"] = country_code
+
+            return order_data
+
+        except Exception as e:
+            logger.error(f"Error fetching order details for {order_reference}: {e}")
+            return None
+
+    def _convert_to_order_gid(self, order_reference: str) -> Optional[str]:
+        """
+        Convert order reference to Shopify GraphQL Global ID (GID)
+
+        Args:
+            order_reference: Either an order number (e.g., "79415") or numeric Shopify ID
+
+        Returns:
+            Shopify GID string (e.g., "gid://shopify/Order/123456789") or None if invalid
+        """
+        if not order_reference or not str(order_reference).strip():
+            return None
+
+        order_ref_str = str(order_reference).strip()
+
+        # If it already starts with "gid://", return as-is
+        if order_ref_str.startswith("gid://"):
+            return order_ref_str
+
+        # Try to extract numeric ID
+        try:
+            # Remove any non-numeric characters
+            numeric_id = ''.join(filter(str.isdigit, order_ref_str))
+
+            if not numeric_id:
+                return None
+
+            # Convert to int to validate
+            order_id = int(numeric_id)
+
+            # Check digit length to determine if it's order number or Shopify ID
+            if len(numeric_id) < 8:
+                # It's an order number - need to fetch the actual Shopify ID
+                # For now, we'll try using the REST API to get the order by name
+                logger.debug(f"Order reference {order_reference} appears to be an order number (<8 digits)")
+                # Try to find order by name using REST API
+                shopify_id = self._get_order_id_by_name(order_ref_str)
+                if shopify_id:
+                    return f"gid://shopify/Order/{shopify_id}"
+                return None
+            else:
+                # It's a Shopify ID - convert to GID
+                return f"gid://shopify/Order/{order_id}"
+
+        except ValueError:
+            logger.warning(f"Could not parse order reference as number: {order_reference}")
+            return None
+
+    def _get_order_id_by_name(self, order_number: str) -> Optional[int]:
+        """
+        Get Shopify order ID by order number (name field) using GraphQL
+
+        Args:
+            order_number: Order number (e.g., "11876" or "79415")
+
+        Returns:
+            Shopify order ID or None if not found
+        """
+        # Use GraphQL to search for orders by name
+        query = """
+        query findOrderByName($queryString: String!) {
+          orders(first: 1, query: $queryString) {
+            edges {
+              node {
+                id
+                name
+                legacyResourceId
+              }
+            }
+          }
+        }
+        """
+
+        # Try multiple search patterns to find the order
+        # Shopify order names typically use # prefix like #79365
+        search_patterns = [
+            f"name:#{order_number}",    # Standard format: #79365
+            f"name:{order_number}",     # Try plain number
+            f"name:DB{order_number}",   # Try with DB prefix (some stores use this)
+            f"name:*{order_number}",    # Try wildcard search
+        ]
+
+        for pattern in search_patterns:
+            try:
+                variables = {"queryString": pattern}
+                response = self.execute_graphql(query, variables)
+
+                if "errors" in response:
+                    continue
+
+                edges = response.get("data", {}).get("orders", {}).get("edges", [])
+
+                if edges:
+                    node = edges[0].get("node", {})
+                    # Use legacyResourceId which is the numeric ID
+                    order_id = node.get("legacyResourceId")
+                    order_name = node.get("name", "")
+                    if order_id:
+                        logger.debug(f"Found order {order_name} (ID: {order_id}) for number {order_number} using pattern: {pattern}")
+                        return int(order_id)
+
+            except Exception as e:
+                logger.debug(f"Error searching with pattern '{pattern}': {e}")
+                continue
+
+        logger.debug(f"Order not found by number: {order_number}")
+        return None

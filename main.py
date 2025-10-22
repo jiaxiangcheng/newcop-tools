@@ -55,7 +55,7 @@ def show_menu():
     print("1. 🔄 Dynamic Collections - Auto-update Shopify collections based on Airtable sales data")
     print(f"2. 📦 Variant Sync - Sync inventory quantities, price or compare price to variant metafields every {inventory_sync_interval_hours} hours")
     print(f"3. 👥 Customer Marketing Sync - Sync customer marketing preferences to metafields every {customer_marketing_sync_interval_hours} hours")
-    print("4. 🚀 More scripts coming soon...")
+    print("4. 📊 Webgains Report Enricher - Enrich Webgains sales reports with Shopify order data")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -255,6 +255,163 @@ def run_customer_marketing_sync() -> bool:
         print(f"❌ Unexpected error running customer marketing sync: {e}")
         return False
 
+def run_webgains_report_enricher() -> bool:
+    """Run the Webgains report enricher script"""
+    try:
+        from pathlib import Path
+        from scripts.generate_report_from_webgains.main import WebgainsReportEnricher
+
+        print("\n📊 Webgains Report Enricher")
+        print("=" * 60)
+
+        # Initialize enricher
+        enricher = WebgainsReportEnricher()
+
+        # Check for files in default directory
+        input_dir = enricher.DEFAULT_INPUT_DIR
+        output_dir = enricher.DEFAULT_OUTPUT_DIR
+
+        # Find Excel files
+        excel_files = []
+        if input_dir.exists():
+            excel_files = list(input_dir.glob("*.xlsx")) + list(input_dir.glob("*.xls"))
+
+        # Ask user what they want to do
+        print("\nSelect mode:")
+        if excel_files:
+            print(f"1. 📂 Process file(s) from: {input_dir}")
+            print("2. 📄 Process specific file (enter path)")
+            print("3. 🔄 Batch process all files")
+            print("0. ↩️  Return to main menu")
+
+            while True:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice in ["1", "2", "3"]:
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+        else:
+            print(f"⚠️  No files found in {input_dir}")
+            print("1. 📄 Process specific file (enter path)")
+            print("0. ↩️  Return to main menu")
+
+            while True:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    mode_choice = "2"  # Map to "process specific file"
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-1.")
+
+        # Handle mode selection
+        input_file = None
+        batch_mode = False
+
+        if mode_choice == "1" and excel_files:
+            # Show files and let user select
+            print("\n📋 Available files:")
+            print("-" * 60)
+            for i, file in enumerate(excel_files, 1):
+                print(f"{i}. {file.name}")
+            print("-" * 60)
+
+            while True:
+                try:
+                    file_choice = input(f"\n🔸 Select file (1-{len(excel_files)}): ").strip()
+                    file_idx = int(file_choice) - 1
+                    if 0 <= file_idx < len(excel_files):
+                        input_file = str(excel_files[file_idx])
+                        break
+                    else:
+                        print(f"❌ Invalid selection. Please enter 1-{len(excel_files)}")
+                except ValueError:
+                    print("❌ Please enter a valid number")
+
+        elif mode_choice == "2":
+            # Manual file path input
+            print("\nEnter the path to your Webgains Excel report file:")
+            print("(Example: /path/to/Transacciones_newcop_2509.xlsx)")
+            input_file = input("\n📥 Input file path: ").strip()
+
+            if not input_file:
+                print("❌ No input file specified.")
+                return False
+
+        elif mode_choice == "3":
+            batch_mode = True
+
+        # Validate environment
+        if not enricher.validate_environment():
+            return False
+
+        # Initialize Shopify client
+        if not enricher.initialize_shopify_client():
+            return False
+
+        # Ask for processing options
+        print("\n⚙️  Processing options:")
+
+        # Ask for optional limit
+        print("\nProcess all records or limit to first N records?")
+        print("(Enter a number or press Enter for all records)")
+        limit_input = input("🔢 Limit (optional): ").strip()
+        limit = None
+        if limit_input and limit_input.isdigit():
+            limit = int(limit_input)
+
+        # Ask for dry run
+        print("\nRun in dry-run mode (preview only, no API calls)?")
+        dry_run_input = input("🧪 Dry run? (y/N): ").strip().lower()
+        dry_run = dry_run_input in ['y', 'yes']
+
+        print("\n" + "=" * 60)
+        print("Starting enrichment process...")
+        print("=" * 60)
+
+        # Process based on mode
+        if batch_mode:
+            # Batch process all files
+            success = enricher.process_batch(
+                input_dir=None,  # Use default
+                output_dir=None,  # Use default
+                dry_run=dry_run,
+                limit=limit
+            )
+        else:
+            # Process single file
+            # Generate output filename
+            input_path = Path(input_file)
+            output_file = output_dir / f"{input_path.stem}_enriched{input_path.suffix}"
+
+            success = enricher.process_report(
+                input_file=input_file,
+                output_file=str(output_file),
+                dry_run=dry_run,
+                limit=limit
+            )
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Webgains Report Enricher completed successfully!")
+        else:
+            print("❌ Webgains Report Enricher completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing Webgains report enricher script: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install openpyxl")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running Webgains report enricher: {e}")
+        return False
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -287,6 +444,7 @@ def main():
         "1": run_dynamic_collections,
         "2": run_inventory_sync,
         "3": run_customer_marketing_sync,
+        "4": run_webgains_report_enricher,
     }
     
     # Check if we're in a virtual environment

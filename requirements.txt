@@ -12,3 +12,6 @@ typing-extensions>=4.0.0
 
 # Scheduling library for automated tasks
 APScheduler>=3.10.4
+
+# Excel file processing for reports
+openpyxl>=3.1.0
