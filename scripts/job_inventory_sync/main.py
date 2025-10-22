@@ -34,9 +34,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from shared.shopify_client import ShopifyClient
 from shared.logger import setup_logger
-from scripts.inventory_sync.inventory_manager import InventoryManager
-from scripts.inventory_sync.storage import InventoryStorage
-from scripts.inventory_sync.models import FlexibleSyncConfig, SyncField, SyncMode
+from scripts.job_inventory_sync.inventory_manager import InventoryManager
+from scripts.job_inventory_sync.storage import InventoryStorage
+from scripts.job_inventory_sync.models import FlexibleSyncConfig, SyncField, SyncMode
 
 # Load environment variables
 load_dotenv()
@@ -47,8 +47,8 @@ logger = setup_logger('inventory_sync', 'inventory_sync.log')
 # Also configure related loggers to use the same settings
 related_loggers = [
     'shared.shopify_client',
-    'scripts.inventory_sync.inventory_manager',
-    'scripts.inventory_sync.storage'
+    'scripts.job_inventory_sync.inventory_manager',
+    'scripts.job_inventory_sync.storage'
 ]
 
 for logger_name in related_loggers:

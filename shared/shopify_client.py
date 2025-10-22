@@ -8,7 +8,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scripts.dynamic_collections.models import FilteredProduct, ShopifyProduct
+from scripts.job_dynamic_collections.models import FilteredProduct, ShopifyProduct
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

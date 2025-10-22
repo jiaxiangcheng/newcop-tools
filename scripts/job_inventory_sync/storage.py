@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.inventory_sync.models import (
+from scripts.job_inventory_sync.models import (
     InventoryCache,
     ProductInventoryCache,
     VariantInventory,
