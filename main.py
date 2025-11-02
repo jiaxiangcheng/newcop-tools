@@ -50,6 +50,7 @@ def show_banner():
 def show_menu():
     inventory_sync_interval_hours = os.getenv("INVENTORY_SYNC_INTERVAL_HOURS", "6")
     customer_marketing_sync_interval_hours = os.getenv("CUSTOMER_MARKETING_SYNC_INTERVAL_HOURS", "6")
+    customer_order_history_interval_hours = os.getenv("CUSTOMER_ORDER_HISTORY_INTERVAL_HOURS", "24")
     """Display the main menu options"""
     print("\n📋 Available Scripts:")
     print("1. 🔄 Dynamic Collections - Auto-update Shopify collections based on Airtable sales data")
@@ -57,6 +58,7 @@ def show_menu():
     print(f"3. 👥 Customer Marketing Sync - Sync customer marketing preferences to metafields every {customer_marketing_sync_interval_hours} hours")
     print("4. 📊 Webgains Report Enricher - Enrich Webgains sales reports with Shopify order data")
     print("5. 📥 Airtable Files Downloader - Download PDF files from Airtable CSV export")
+    print(f"6. 📈 Customer Order History - Analyze and sync customer order counts (runs daily at 00:00)")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -483,6 +485,83 @@ def run_airtable_downloader() -> bool:
         print(f"❌ Unexpected error: {e}")
         return False
 
+def run_customer_order_history() -> bool:
+    """Run the customer order history script with user mode selection"""
+    try:
+        print("\n📈 Starting Customer Order History Script...")
+        print("=" * 60)
+
+        # Get interval from environment variable
+        interval_hours = os.getenv("CUSTOMER_ORDER_HISTORY_INTERVAL_HOURS", "24")
+
+        # Ask user for execution mode
+        print("Select execution mode:")
+        print("1. 🔧 Manual Sync (process all orders in view)")
+        print(f"2. 🔄 Scheduled Mode (run daily at 00:00, process yesterday's orders)")
+        print("3. 🧪 Dry Run (analyze yesterday's orders without updating)")
+        print("4. ⚡ Force All (process all orders ignoring cache)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True  # Return to main menu
+                elif mode_choice == "1":
+                    # Manual sync - process ALL orders in view
+                    from scripts.customer_order_history.main import run_customer_order_history
+                    success = run_customer_order_history(mode="manual", dry_run=False, force_all=False, yesterday_only=False)
+                    break
+                elif mode_choice == "2":
+                    # Scheduled mode - daily at 00:00, process yesterday's orders only
+                    print(f"\n⚠️  Scheduled mode will run continuously daily at 00:00. Press Ctrl+C to stop.")
+                    confirm = input("Continue? (y/N): ").strip().lower()
+                    if confirm in ['y', 'yes']:
+                        from scripts.customer_order_history.main import run_customer_order_history
+                        success = run_customer_order_history(mode="scheduled", dry_run=False, force_all=False, yesterday_only=False)
+                    else:
+                        success = True  # User cancelled
+                    break
+                elif mode_choice == "3":
+                    # Dry run - analyze yesterday's orders only
+                    from scripts.customer_order_history.main import run_customer_order_history
+                    success = run_customer_order_history(mode="manual", dry_run=True, force_all=False, yesterday_only=True)
+                    break
+                elif mode_choice == "4":
+                    # Force all - process ALL orders ignoring cache
+                    print("\n⚠️  This will process ALL records regardless of cache. Continue?")
+                    confirm = input("Continue? (y/N): ").strip().lower()
+                    if confirm in ['y', 'yes']:
+                        from scripts.customer_order_history.main import run_customer_order_history
+                        success = run_customer_order_history(mode="manual", dry_run=False, force_all=True, yesterday_only=False)
+                    else:
+                        success = True  # User cancelled
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-4.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Customer Order History Script completed successfully!")
+        else:
+            print("❌ Customer Order History Script completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing customer order history script: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install APScheduler")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running customer order history: {e}")
+        return False
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -517,6 +596,7 @@ def main():
         "3": run_customer_marketing_sync,
         "4": run_webgains_report_enricher,
         "5": run_airtable_downloader,
+        "6": run_customer_order_history,
     }
     
     # Check if we're in a virtual environment
