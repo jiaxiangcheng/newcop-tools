@@ -246,7 +246,7 @@ class CustomerOrderHistoryOrchestrator:
             )
 
             logger.info(f"✅ Scheduler configured to run daily at 00:00")
-            logger.info(f"   Next run: {self.scheduler.get_jobs()[0].next_run_time}")
+            # Note: next_run_time will be available after scheduler starts
 
             return True
 
@@ -289,7 +289,17 @@ class CustomerOrderHistoryOrchestrator:
         self.run_single_sync(yesterday_only=True)
 
         # Start scheduler (blocks until stopped)
-        logger.info("\n📅 Scheduler started, waiting for next execution at 00:00...")
+        logger.info("\n📅 Starting scheduler...")
+
+        # Calculate and display next run time
+        from datetime import datetime
+        now = datetime.now()
+        next_run = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if now.hour >= 0 or (now.hour == 0 and now.minute > 0):
+            # If it's already past 00:00 today, next run is tomorrow at 00:00
+            from datetime import timedelta
+            next_run = next_run + timedelta(days=1)
+        logger.info(f"⏰ Next scheduled run will be at: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("Press Ctrl+C to stop")
         logger.info("=" * 60 + "\n")
 
