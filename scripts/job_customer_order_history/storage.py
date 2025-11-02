@@ -12,7 +12,7 @@ from typing import Optional, Set
 from datetime import datetime
 from pathlib import Path
 
-from scripts.customer_order_history.models import ProcessedRecordsCache
+from scripts.job_customer_order_history.models import ProcessedRecordsCache
 
 logger = logging.getLogger(__name__)
 

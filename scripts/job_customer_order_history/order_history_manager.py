@@ -13,13 +13,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from shared.shopify_client import ShopifyClient
 from shared.airtable_client import AirtableClient
-from scripts.customer_order_history.models import (
+from scripts.job_customer_order_history.models import (
     OrderRecord,
     CustomerOrderStats,
     OrderUpdate,
     OrderHistorySyncResult
 )
-from scripts.customer_order_history.storage import OrderHistoryStorage
+from scripts.job_customer_order_history.storage import OrderHistoryStorage
 
 logger = logging.getLogger(__name__)
 

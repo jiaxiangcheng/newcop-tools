@@ -510,7 +510,7 @@ def run_customer_order_history() -> bool:
                     return True  # Return to main menu
                 elif mode_choice == "1":
                     # Manual sync - process ALL orders in view
-                    from scripts.customer_order_history.main import run_customer_order_history
+                    from scripts.job_customer_order_history.main import run_customer_order_history
                     success = run_customer_order_history(mode="manual", dry_run=False, force_all=False, yesterday_only=False)
                     break
                 elif mode_choice == "2":
@@ -518,14 +518,14 @@ def run_customer_order_history() -> bool:
                     print(f"\n⚠️  Scheduled mode will run continuously daily at 00:00. Press Ctrl+C to stop.")
                     confirm = input("Continue? (y/N): ").strip().lower()
                     if confirm in ['y', 'yes']:
-                        from scripts.customer_order_history.main import run_customer_order_history
+                        from scripts.job_customer_order_history.main import run_customer_order_history
                         success = run_customer_order_history(mode="scheduled", dry_run=False, force_all=False, yesterday_only=False)
                     else:
                         success = True  # User cancelled
                     break
                 elif mode_choice == "3":
                     # Dry run - analyze yesterday's orders only
-                    from scripts.customer_order_history.main import run_customer_order_history
+                    from scripts.job_customer_order_history.main import run_customer_order_history
                     success = run_customer_order_history(mode="manual", dry_run=True, force_all=False, yesterday_only=True)
                     break
                 elif mode_choice == "4":
@@ -533,7 +533,7 @@ def run_customer_order_history() -> bool:
                     print("\n⚠️  This will process ALL records regardless of cache. Continue?")
                     confirm = input("Continue? (y/N): ").strip().lower()
                     if confirm in ['y', 'yes']:
-                        from scripts.customer_order_history.main import run_customer_order_history
+                        from scripts.job_customer_order_history.main import run_customer_order_history
                         success = run_customer_order_history(mode="manual", dry_run=False, force_all=True, yesterday_only=False)
                     else:
                         success = True  # User cancelled

@@ -21,9 +21,9 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 
 from shared.shopify_client import ShopifyClient
 from shared.airtable_client import AirtableClient
-from scripts.customer_order_history.order_history_manager import OrderHistoryManager
-from scripts.customer_order_history.storage import OrderHistoryStorage
-from scripts.customer_order_history.models import OrderHistorySyncResult
+from scripts.job_customer_order_history.order_history_manager import OrderHistoryManager
+from scripts.job_customer_order_history.storage import OrderHistoryStorage
+from scripts.job_customer_order_history.models import OrderHistorySyncResult
 
 # Load environment variables
 load_dotenv()
