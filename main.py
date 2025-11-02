@@ -56,6 +56,7 @@ def show_menu():
     print(f"2. 📦 Variant Sync - Sync inventory quantities, price or compare price to variant metafields every {inventory_sync_interval_hours} hours")
     print(f"3. 👥 Customer Marketing Sync - Sync customer marketing preferences to metafields every {customer_marketing_sync_interval_hours} hours")
     print("4. 📊 Webgains Report Enricher - Enrich Webgains sales reports with Shopify order data")
+    print("5. 📥 Airtable Files Downloader - Download PDF files from Airtable CSV export")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -412,6 +413,76 @@ def run_webgains_report_enricher() -> bool:
         print(f"❌ Unexpected error running Webgains report enricher: {e}")
         return False
 
+def run_airtable_downloader() -> bool:
+    """Run the Airtable files downloader script"""
+    try:
+        print("\n📥 Starting Airtable Files Downloader...")
+        print("=" * 60)
+
+        from scripts.massive_download_airtable_files.main import AirtableFileDownloader
+
+        # Default paths
+        default_csv = "scripts/massive_download_airtable_files/Items-INVOICE.csv"
+        default_output = "scripts/massive_download_airtable_files/facturas_pdf"
+
+        # Ask user for options
+        print(f"Default CSV file: {default_csv}")
+        print(f"Default output directory: {default_output}")
+        print()
+
+        use_defaults = input("Use default paths? (Y/n): ").strip().lower()
+
+        if use_defaults in ['', 'y', 'yes']:
+            csv_path = default_csv
+            output_dir = default_output
+        else:
+            csv_path = input(f"CSV file path [{default_csv}]: ").strip() or default_csv
+            output_dir = input(f"Output directory [{default_output}]: ").strip() or default_output
+
+        # Ask for dry run
+        dry_run_choice = input("\nDry run (preview without downloading)? (y/N): ").strip().lower()
+        dry_run = dry_run_choice in ['y', 'yes']
+
+        # Ask for limit
+        limit_choice = input("Limit number of files (leave empty for all): ").strip()
+        limit = int(limit_choice) if limit_choice.isdigit() else None
+
+        print()
+        print("=" * 60)
+
+        # Create downloader and run
+        downloader = AirtableFileDownloader(
+            csv_path=csv_path,
+            output_dir=output_dir
+        )
+
+        result = downloader.download_all(dry_run=dry_run, limit=limit)
+
+        print()
+        print("=" * 60)
+
+        if result.get("dry_run"):
+            print("✅ Dry run completed successfully!")
+            return True
+        elif result["failed"] == 0:
+            print("✅ All files downloaded successfully!")
+            return True
+        else:
+            print(f"⚠️  Download completed with {result['failed']} failures.")
+            return False
+
+    except FileNotFoundError as e:
+        print(f"❌ Error: {e}")
+        print("💡 Make sure the CSV file exists at the specified path.")
+        return False
+    except ImportError as e:
+        print(f"❌ Error importing downloader script: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install pandas tqdm")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        return False
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -445,6 +516,7 @@ def main():
         "2": run_inventory_sync,
         "3": run_customer_marketing_sync,
         "4": run_webgains_report_enricher,
+        "5": run_airtable_downloader,
     }
     
     # Check if we're in a virtual environment

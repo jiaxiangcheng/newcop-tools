@@ -15,3 +15,9 @@ APScheduler>=3.10.4
 
 # Excel file processing for reports
 openpyxl>=3.1.0
+
+# CSV and data processing
+pandas>=2.0.0
+
+# Progress bar for downloads
+tqdm>=4.65.0
