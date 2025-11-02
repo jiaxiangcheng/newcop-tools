@@ -22,7 +22,8 @@ class AirtableClient:
         view_id: Optional[str] = None,
         max_records: Optional[int] = None,
         batch_callback: Optional[callable] = None,
-        batch_size: int = 100
+        batch_size: int = 100,
+        filter_by_formula: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Fetch records from Airtable table with pagination support
@@ -33,6 +34,7 @@ class AirtableClient:
             max_records: Optional maximum number of records to fetch
             batch_callback: Optional callback function to process each batch of records
             batch_size: Size of each batch (default: 100, max: 100 per Airtable API)
+            filter_by_formula: Optional Airtable formula to filter records (e.g., "IS_SAME({Created At}, TODAY(), 'day')")
 
         Returns:
             List of all fetched records (empty if batch_callback is used)
@@ -42,6 +44,9 @@ class AirtableClient:
 
         if view_id:
             params["view"] = view_id
+
+        if filter_by_formula:
+            params["filterByFormula"] = filter_by_formula
 
         all_records = []
         offset = None

@@ -139,12 +139,21 @@ class OrderHistoryManager:
                 else:
                     logger.info(f"⚠️  Batch {batch_number}: No updates needed")
 
+            # Build filter formula for yesterday's records if needed
+            filter_formula = None
+            if yesterday_only:
+                # Airtable formula to filter records created yesterday
+                # IS_SAME({Created At}, DATEADD(TODAY(), -1, 'days'), 'day')
+                filter_formula = "IS_SAME({Created At}, DATEADD(TODAY(), -1, 'days'), 'day')"
+                logger.info(f"📅 Using Airtable filter formula: {filter_formula}")
+
             # Fetch records with batch callback
             self.airtable_client.get_records(
                 table_id=self.airtable_table_id,
                 view_id=self.airtable_view_id,
                 batch_callback=process_batch,
-                batch_size=100
+                batch_size=100,
+                filter_by_formula=filter_formula
             )
 
             # Final summary
@@ -181,40 +190,14 @@ class OrderHistoryManager:
 
         Args:
             raw_records: Raw records from Airtable API
-            yesterday_only: If True, filter for orders from yesterday only
+            yesterday_only: Not used anymore - filtering is done at API level via filterByFormula
 
         Returns:
             List of OrderRecord objects
         """
-        from datetime import datetime, timedelta
-
         try:
-            # If yesterday_only mode, filter by date
-            if yesterday_only:
-                # Calculate yesterday's date
-                today = datetime.now().date()
-                yesterday = today - timedelta(days=1)
-
-                # Filter records by Date field
-                filtered_records = []
-                for record in raw_records:
-                    fields = record.get("fields", {})
-                    order_date_str = fields.get("Date")
-
-                    if order_date_str:
-                        try:
-                            # Parse the date string (Airtable typically uses ISO format: YYYY-MM-DD)
-                            order_date = datetime.fromisoformat(order_date_str.split('T')[0])
-                            order_date_only = order_date.date()
-
-                            # Check if order is from yesterday
-                            if order_date_only == yesterday:
-                                filtered_records.append(record)
-                        except (ValueError, AttributeError) as e:
-                            logger.debug(f"Could not parse date for record {record.get('id')}: {order_date_str}")
-                            continue
-
-                raw_records = filtered_records
+            # Note: Date filtering is now done at API level using filterByFormula
+            # No need for in-memory filtering anymore
 
             # Parse records into OrderRecord objects
             order_records = []
