@@ -563,40 +563,33 @@ class ShopifyClient:
             return None
     
     def get_collections_with_job_settings(self) -> List[Dict[str, Any]]:
-        """Get all collections that have job_settings metafield configured"""
+        """Get all collections that have job_settings metafield configured (regardless of naming convention)"""
         try:
             all_collections = self.get_all_collections()
             collections_with_jobs = []
-            
-            # First, filter collections that start with "Auto -" for efficiency
-            auto_collections = [
-                collection for collection in all_collections 
-                if collection.get("title", "").startswith("Auto -")
-            ]
-            
-            logger.info(f"Found {len(auto_collections)} collections starting with 'Auto -' out of {len(all_collections)} total collections")
-            
-            # Check metafields only for "Auto -" collections (never check all collections)
-            collections_to_check = auto_collections
-            
-            for collection in collections_to_check:
+
+            logger.info(f"Checking {len(all_collections)} collections for job_settings metafield...")
+            logger.info(f"⚠️  Note: Checking ALL collections regardless of naming convention")
+
+            # Check metafields for ALL collections (not just "Auto -" prefix)
+            for collection in all_collections:
                 # Handle both collection_listings and regular collections API response formats
                 collection_id = str(collection.get("collection_id") or collection.get("id"))
                 collection_title = collection.get("title", "Unknown")
-                
+
                 logger.debug(f"Checking job_settings for collection: {collection_title}")
                 job_settings = self.get_collection_job_settings(collection_id)
-                
+
                 if job_settings:
                     collections_with_jobs.append({
                         "collection": collection,
                         "job_settings": job_settings
                     })
                     logger.info(f"✅ Found job_settings for collection: {collection_title}")
-            
-            logger.info(f"Found {len(collections_with_jobs)} collections with job_settings")
+
+            logger.info(f"Found {len(collections_with_jobs)} collections with job_settings out of {len(all_collections)} total collections")
             return collections_with_jobs
-            
+
         except Exception as e:
             logger.error(f"Error getting collections with job_settings: {e}")
             raise

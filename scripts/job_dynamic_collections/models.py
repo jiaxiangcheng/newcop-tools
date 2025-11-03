@@ -33,21 +33,34 @@ class SalesRecord(BaseModel):
     def from_airtable_record(cls, record: Dict[str, Any]) -> "SalesRecord":
         """Create SalesRecord from Airtable record"""
         fields = record.get("fields", {})
-        
+
         # Extract tags (handle both string and list formats)
         tags = fields.get("Tags", fields.get("tags", []))
         if isinstance(tags, str):
             tags = [tag.strip() for tag in tags.split(",")]
         elif not isinstance(tags, list):
             tags = []
-        
+
+        # Extract shopify_id - handle both product IDs and variant IDs
+        shopify_id = None
+        raw_id = fields.get("∞ Shopify Id")
+        if raw_id:
+            try:
+                # If it's a string with "-" (variant ID like "16764987244885-1"), extract product ID
+                if isinstance(raw_id, str) and "-" in raw_id:
+                    shopify_id = int(raw_id.split("-")[0])
+                else:
+                    shopify_id = int(raw_id)
+            except (ValueError, TypeError):
+                shopify_id = None
+
         return cls(
             id=record.get("id"),
             createdTime=record.get("createdTime"),
             product_name=fields.get("Product Title") or fields.get("product_name") or fields.get("nombre") or fields.get("name"),
             brand=fields.get("Vendor") or fields.get("brand") or fields.get("marca"),
             tags=tags,
-            shopify_id=int(fields.get("∞ Shopify Id", 0) or 0) if fields.get("∞ Shopify Id") else None,
+            shopify_id=shopify_id,
             quarterly_sales=float(fields.get("Ventas trimestre", 0) or fields.get("quarterly_sales", 0) or fields.get("trimestre_sales", 0) or 0),
             total_sales=float(fields.get("Total sale", 0) or fields.get("total_sales", 0) or fields.get("ventas_totales", 0) or 0),
             category=fields.get("category") or fields.get("categoria"),
@@ -69,7 +82,7 @@ class FilteredProduct(BaseModel):
     def should_include_in_collection(self) -> bool:
         """Check if product should be included in the collection"""
         # Check if product has required brand keywords
-        brand_keywords = ["nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma"]
+        brand_keywords = ["nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma", "ugg"]
         product_name_lower = self.product_name.lower() if self.product_name else ""
         brand_lower = self.brand.lower() if self.brand else ""
         
@@ -127,6 +140,7 @@ class TopResellProductsJobSettings(BaseJobSettings):
     EXCLUDED_TAGS: Optional[List[str]] = None
     INCLUDED_TAGS: Optional[List[str]] = None
     BRAND_KEYWORDS: List[str] = ["nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma", "pop mart"]
+    EXCLUDED_BRAND_KEYWORDS: Optional[List[str]] = None
     
     @validator('jobType')
     def validate_job_type(cls, v):

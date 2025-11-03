@@ -7,19 +7,21 @@ logger.setLevel(logging.INFO)
 
 class ProductFilter:
     """Filter products based on configurable brand, tags, and sales criteria"""
-    
-    def __init__(self, 
+
+    def __init__(self,
                  brand_keywords: List[str] = None,
                  excluded_tags: Optional[List[str]] = None,
                  included_tags: Optional[List[str]] = None,
+                 excluded_brand_keywords: Optional[List[str]] = None,
                  min_quarterly_sales: float = 5.0):
         """
         Initialize filter with configurable parameters
-        
+
         Args:
             brand_keywords: List of brand keywords to include
             excluded_tags: List of tags to exclude (if product has any of these tags, exclude it)
             included_tags: List of tags to include (if specified, product must have at least one of these tags)
+            excluded_brand_keywords: List of brand keywords to exclude (if product name/brand contains any, exclude it)
             min_quarterly_sales: Minimum quarterly sales threshold
         """
         self.brand_keywords = brand_keywords or [
@@ -27,6 +29,7 @@ class ProductFilter:
         ]
         self.excluded_tags = excluded_tags  # Can be None for no restriction
         self.included_tags = included_tags  # Can be None for no restriction
+        self.excluded_brand_keywords = excluded_brand_keywords  # Can be None for no restriction
         self.min_quarterly_sales = min_quarterly_sales
         self.filtered_products: List[FilteredProduct] = []
     
@@ -47,7 +50,9 @@ class ProductFilter:
         if self.included_tags:
             logger.info(f"Step 1: Finding products with included tags {self.included_tags} (no sales threshold)")
             for record in sales_records:
-                if self._has_required_included_tags(record) and not self._has_excluded_tags(record):
+                if (self._has_required_included_tags(record) and
+                    not self._has_excluded_tags(record) and
+                    not self._has_excluded_brand_keyword(record)):
                     try:
                         filtered_product = FilteredProduct(
                             record_id=record.record_id,
@@ -68,8 +73,9 @@ class ProductFilter:
         # Step 2: Get products meeting regular criteria (sales + brand + no excluded tags, but ignore included_tags requirement)
         logger.info(f"Step 2: Finding products meeting sales threshold {self.min_quarterly_sales}")
         for record in sales_records:
-            if (self._has_required_brand_keyword(record) and 
-                not self._has_excluded_tags(record) and 
+            if (self._has_required_brand_keyword(record) and
+                not self._has_excluded_tags(record) and
+                not self._has_excluded_brand_keyword(record) and
                 self._meets_sales_threshold(record)):
                 try:
                     filtered_product = FilteredProduct(
@@ -161,32 +167,51 @@ class ProductFilter:
         # Check if product name or brand contains required keywords
         if not self._has_required_brand_keyword(record):
             return False
-        
+
+        # Check if product has excluded brand keywords
+        if self._has_excluded_brand_keyword(record):
+            return False
+
         # Check if product has excluded tags
         if self._has_excluded_tags(record):
             return False
-        
+
         # Check if product has required included tags (if specified)
         if not self._has_required_included_tags(record):
             return False
-        
+
         # Check sales threshold
         if not self._meets_sales_threshold(record):
             return False
-        
+
         return True
     
     def _has_required_brand_keyword(self, record: SalesRecord) -> bool:
         """Check if product name or brand contains required brand keywords"""
         product_name = (record.product_name or "").lower()
         brand = (record.brand or "").lower()
-        
+
         for keyword in self.brand_keywords:
             if keyword.lower() in product_name or keyword.lower() in brand:
                 return True
-        
+
         return False
-    
+
+    def _has_excluded_brand_keyword(self, record: SalesRecord) -> bool:
+        """Check if product name or brand contains any excluded brand keywords"""
+        if not self.excluded_brand_keywords:
+            return False
+
+        product_name = (record.product_name or "").lower()
+        brand = (record.brand or "").lower()
+
+        for keyword in self.excluded_brand_keywords:
+            if keyword.lower() in product_name or keyword.lower() in brand:
+                logger.debug(f"Product '{record.product_name}' excluded due to brand keyword '{keyword}'")
+                return True
+
+        return False
+
     def _has_excluded_tags(self, record: SalesRecord) -> bool:
         """Check if product has any excluded tags"""
         if not record.tags or not self.excluded_tags:
@@ -227,6 +252,7 @@ class ProductFilter:
         """Get summary of filtering criteria and results"""
         return {
             "brand_keywords": self.brand_keywords,
+            "excluded_brand_keywords": self.excluded_brand_keywords,
             "excluded_tags": self.excluded_tags,
             "included_tags": self.included_tags,
             "min_quarterly_sales": self.min_quarterly_sales,
