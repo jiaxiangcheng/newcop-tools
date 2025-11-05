@@ -15,17 +15,17 @@ import pandas as pd
 import requests
 from tqdm import tqdm
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('logs/airtable_downloader.log')
-    ]
-)
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-logger = logging.getLogger(__name__)
+from shared.logger import setup_logger
+
+# Configure logging with proper Unicode handling
+logger = setup_logger(
+    logger_name=__name__,
+    log_file_name='airtable_downloader.log',
+    log_level=logging.INFO
+)
 
 
 class AirtableFileDownloader:

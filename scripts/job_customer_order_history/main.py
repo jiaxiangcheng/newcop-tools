@@ -21,6 +21,7 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 
 from shared.shopify_client import ShopifyClient
 from shared.airtable_client import AirtableClient
+from shared.logger import setup_logger
 from scripts.job_customer_order_history.order_history_manager import OrderHistoryManager
 from scripts.job_customer_order_history.storage import OrderHistoryStorage
 from scripts.job_customer_order_history.models import OrderHistorySyncResult
@@ -28,16 +29,12 @@ from scripts.job_customer_order_history.models import OrderHistorySyncResult
 # Load environment variables
 load_dotenv()
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/customer_order_history.log'),
-        logging.StreamHandler()
-    ]
+# Setup logging with proper Unicode handling
+logger = setup_logger(
+    logger_name=__name__,
+    log_file_name='customer_order_history.log',
+    log_level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
 
 class CustomerOrderHistoryOrchestrator:
