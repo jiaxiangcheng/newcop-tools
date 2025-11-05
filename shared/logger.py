@@ -24,7 +24,7 @@ if platform.system() == 'Windows':
             # Map emoji to text alternatives for Windows console
             self.emoji_map = {
                 '✅': '[OK]',
-                '❌': '[ERROR]', 
+                '❌': '[ERROR]',
                 '⚠️': '[WARNING]',
                 '🔧': '[CONFIG]',
                 '📅': '[SCHEDULE]',
@@ -46,7 +46,11 @@ if platform.system() == 'Windows':
                 '📥': '[INPUT]',
                 '👋': '[BYE]',
                 '💥': '[CRASH]',
-                '↩️': '[RETURN]'
+                '↩️': '[RETURN]',
+                '⏰': '[TIMER]',
+                '🔍': '[SEARCH]',
+                '📝': '[WRITE]',
+                '💾': '[SAVE]'
             }
         
         def emit(self, record):
