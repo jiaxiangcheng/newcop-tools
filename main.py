@@ -288,29 +288,37 @@ def run_webgains_report_enricher() -> bool:
             print("0. ↩️  Return to main menu")
 
             while True:
-                mode_choice = input("\n🔸 Choose mode: ").strip()
+                try:
+                    mode_choice = input("\n🔸 Choose mode: ").strip()
 
-                if mode_choice == "0":
+                    if mode_choice == "0":
+                        return True
+                    elif mode_choice in ["1", "2", "3"]:
+                        break
+                    else:
+                        print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                except (EOFError, KeyboardInterrupt):
+                    print("\n⏹️  Operation cancelled by user")
                     return True
-                elif mode_choice in ["1", "2", "3"]:
-                    break
-                else:
-                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
         else:
             print(f"⚠️  No files found in {input_dir}")
             print("1. 📄 Process specific file (enter path)")
             print("0. ↩️  Return to main menu")
 
             while True:
-                mode_choice = input("\n🔸 Choose mode: ").strip()
+                try:
+                    mode_choice = input("\n🔸 Choose mode: ").strip()
 
-                if mode_choice == "0":
+                    if mode_choice == "0":
+                        return True
+                    elif mode_choice == "1":
+                        mode_choice = "2"  # Map to "process specific file"
+                        break
+                    else:
+                        print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-1.")
+                except (EOFError, KeyboardInterrupt):
+                    print("\n⏹️  Operation cancelled by user")
                     return True
-                elif mode_choice == "1":
-                    mode_choice = "2"  # Map to "process specific file"
-                    break
-                else:
-                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-1.")
 
         # Handle mode selection
         input_file = None
@@ -335,16 +343,23 @@ def run_webgains_report_enricher() -> bool:
                         print(f"❌ Invalid selection. Please enter 1-{len(excel_files)}")
                 except ValueError:
                     print("❌ Please enter a valid number")
+                except (EOFError, KeyboardInterrupt):
+                    print("\n⏹️  Operation cancelled by user")
+                    return True
 
         elif mode_choice == "2":
             # Manual file path input
-            print("\nEnter the path to your Webgains Excel report file:")
-            print("(Example: /path/to/Transacciones_newcop_2509.xlsx)")
-            input_file = input("\n📥 Input file path: ").strip()
+            try:
+                print("\nEnter the path to your Webgains Excel report file:")
+                print("(Example: /path/to/Transacciones_newcop_2509.xlsx)")
+                input_file = input("\n📥 Input file path: ").strip()
 
-            if not input_file:
-                print("❌ No input file specified.")
-                return False
+                if not input_file:
+                    print("❌ No input file specified.")
+                    return False
+            except (EOFError, KeyboardInterrupt):
+                print("\n⏹️  Operation cancelled by user")
+                return True
 
         elif mode_choice == "3":
             batch_mode = True
@@ -360,18 +375,22 @@ def run_webgains_report_enricher() -> bool:
         # Ask for processing options
         print("\n⚙️  Processing options:")
 
-        # Ask for optional limit
-        print("\nProcess all records or limit to first N records?")
-        print("(Enter a number or press Enter for all records)")
-        limit_input = input("🔢 Limit (optional): ").strip()
-        limit = None
-        if limit_input and limit_input.isdigit():
-            limit = int(limit_input)
+        try:
+            # Ask for optional limit
+            print("\nProcess all records or limit to first N records?")
+            print("(Enter a number or press Enter for all records)")
+            limit_input = input("🔢 Limit (optional): ").strip()
+            limit = None
+            if limit_input and limit_input.isdigit():
+                limit = int(limit_input)
 
-        # Ask for dry run
-        print("\nRun in dry-run mode (preview only, no API calls)?")
-        dry_run_input = input("🧪 Dry run? (y/N): ").strip().lower()
-        dry_run = dry_run_input in ['y', 'yes']
+            # Ask for dry run
+            print("\nRun in dry-run mode (preview only, no API calls)?")
+            dry_run_input = input("🧪 Dry run? (y/N): ").strip().lower()
+            dry_run = dry_run_input in ['y', 'yes']
+        except (EOFError, KeyboardInterrupt):
+            print("\n⏹️  Operation cancelled by user")
+            return True
 
         print("\n" + "=" * 60)
         print("Starting enrichment process...")
