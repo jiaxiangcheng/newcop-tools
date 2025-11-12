@@ -13,7 +13,8 @@ class ProductFilter:
                  excluded_tags: Optional[List[str]] = None,
                  included_tags: Optional[List[str]] = None,
                  excluded_brand_keywords: Optional[List[str]] = None,
-                 min_quarterly_sales: float = 5.0):
+                 min_quarterly_sales: float = 5.0,
+                 sales_period: str = "QUARTERLY"):
         """
         Initialize filter with configurable parameters
 
@@ -22,7 +23,8 @@ class ProductFilter:
             excluded_tags: List of tags to exclude (if product has any of these tags, exclude it)
             included_tags: List of tags to include (if specified, product must have at least one of these tags)
             excluded_brand_keywords: List of brand keywords to exclude (if product name/brand contains any, exclude it)
-            min_quarterly_sales: Minimum quarterly sales threshold
+            min_quarterly_sales: Minimum sales threshold (applies to either monthly or quarterly based on sales_period)
+            sales_period: Sales period to use for filtering ("MONTHLY" or "QUARTERLY")
         """
         self.brand_keywords = brand_keywords or [
             "nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma", "pop mart"
@@ -30,90 +32,124 @@ class ProductFilter:
         self.excluded_tags = excluded_tags  # Can be None for no restriction
         self.included_tags = included_tags  # Can be None for no restriction
         self.excluded_brand_keywords = excluded_brand_keywords  # Can be None for no restriction
-        self.min_quarterly_sales = min_quarterly_sales
+        self.min_quarterly_sales = min_quarterly_sales  # Now used as min_sales_threshold
+        self.sales_period = sales_period.upper()
         self.filtered_products: List[FilteredProduct] = []
     
     def filter_products_with_newcop_exception(self, sales_records: List[SalesRecord]) -> List[FilteredProduct]:
         """
-        Filter products with newcop tag exception logic:
-        1. First get all products with included_tags (e.g., 'newcop') - no sales threshold required
-        2. Then get products meeting regular criteria (sales threshold + other filters)
-        3. Merge and deduplicate, then sort by sales performance
+        Filter products with correct inclusion/exclusion logic:
+
+        Step 1 - Include products that meet ANY of these conditions:
+          a) Has INCLUDED_TAGS (if specified) - no sales threshold
+          b) Has BRAND_KEYWORDS (if specified) AND meets sales threshold
+
+        Step 2 - Exclude products from Step 1 that have:
+          a) EXCLUDED_TAGS
+          b) EXCLUDED_BRAND_KEYWORDS
+
+        Step 3 - Sort by sales performance
         """
         all_products = []
-        newcop_products = []
-        regular_products = []
-        
-        logger.info(f"Starting to filter {len(sales_records)} sales records with newcop exception logic")
-        
-        # Step 1: Get all products with included_tags (newcop exception - no sales requirement)
-        if self.included_tags:
-            logger.info(f"Step 1: Finding products with included tags {self.included_tags} (no sales threshold)")
-            for record in sales_records:
-                if (self._has_required_included_tags(record) and
-                    not self._has_excluded_tags(record) and
-                    not self._has_excluded_brand_keyword(record)):
-                    try:
-                        filtered_product = FilteredProduct(
-                            record_id=record.record_id,
-                            product_name=record.product_name or "",
-                            brand=record.brand or "",
-                            quarterly_sales=record.quarterly_sales,
-                            total_sales=record.total_sales,
-                            tags=record.tags or [],
-                            shopify_id=record.shopify_id
-                        )
-                        newcop_products.append(filtered_product)
-                        logger.debug(f"Added newcop product: {record.product_name} (sales: {record.quarterly_sales})")
-                    except Exception as e:
-                        logger.warning(f"Error creating newcop product for record {record.record_id}: {e}")
-            
-            logger.info(f"Found {len(newcop_products)} products with included tags")
-        
-        # Step 2: Get products meeting regular criteria (sales + brand + no excluded tags, but ignore included_tags requirement)
-        logger.info(f"Step 2: Finding products meeting sales threshold {self.min_quarterly_sales}")
+
+        logger.info(f"Starting to filter {len(sales_records)} sales records with include/exclude logic")
+
+        # Counters for debugging
+        included_by_tags = 0
+        included_by_brand = 0
+        excluded_by_tags = 0
+        excluded_by_brand = 0
+        excluded_by_sales = 0
+
         for record in sales_records:
-            if (self._has_required_brand_keyword(record) and
-                not self._has_excluded_tags(record) and
-                not self._has_excluded_brand_keyword(record) and
-                self._meets_sales_threshold(record)):
-                try:
-                    filtered_product = FilteredProduct(
-                        record_id=record.record_id,
-                        product_name=record.product_name or "",
-                        brand=record.brand or "",
-                        quarterly_sales=record.quarterly_sales,
-                        total_sales=record.total_sales,
-                        tags=record.tags or [],
-                        shopify_id=record.shopify_id
-                    )
-                    regular_products.append(filtered_product)
-                    logger.debug(f"Added regular product: {record.product_name} (sales: {record.quarterly_sales})")
-                except Exception as e:
-                    logger.warning(f"Error creating regular product for record {record.record_id}: {e}")
-        
-        logger.info(f"Found {len(regular_products)} products meeting regular criteria")
-        
-        # Step 3: Merge and deduplicate by record_id
-        seen_record_ids = set()
-        for product in newcop_products + regular_products:
-            if product.record_id not in seen_record_ids:
-                all_products.append(product)
-                seen_record_ids.add(product.record_id)
-        
+            # Step 1: Check if product should be INCLUDED
+            # Include if: (has included_tags) OR (has brand_keywords AND meets sales threshold)
+
+            has_included_tags = self._has_required_included_tags(record) if self.included_tags else False
+            has_brand_keyword = self._has_required_brand_keyword(record) if self.brand_keywords else False
+            meets_sales = self._meets_sales_threshold(record)
+
+            # Inclusion logic: included_tags (no sales requirement) OR (brand_keywords AND sales threshold)
+            should_include = False
+            inclusion_reason = ""
+
+            if has_included_tags:
+                should_include = True
+                inclusion_reason = "included_tags"
+                included_by_tags += 1
+            elif has_brand_keyword and meets_sales:
+                should_include = True
+                inclusion_reason = "brand_keywords_and_sales"
+                included_by_brand += 1
+            elif has_brand_keyword and not meets_sales:
+                excluded_by_sales += 1
+
+            if not should_include:
+                continue
+
+            # Step 2: Check if product should be EXCLUDED
+            has_excluded_tags = self._has_excluded_tags(record)
+            has_excluded_brand = self._has_excluded_brand_keyword(record)
+
+            if has_excluded_tags:
+                excluded_by_tags += 1
+                logger.debug(f"Excluded by tags: {record.product_name}")
+                continue
+
+            if has_excluded_brand:
+                excluded_by_brand += 1
+                logger.debug(f"Excluded by brand keyword: {record.product_name}")
+                continue
+
+            # Product passed all filters, add it
+            try:
+                # Get the actual sales value used for filtering
+                sales_value = self._get_sales_value(record)
+
+                filtered_product = FilteredProduct(
+                    record_id=record.record_id,
+                    product_name=record.product_name or "",
+                    brand=record.brand or "",
+                    quarterly_sales=record.quarterly_sales,
+                    monthly_sales=record.monthly_sales,
+                    total_sales=record.total_sales,
+                    tags=record.tags or [],
+                    shopify_id=record.shopify_id,
+                    sales_period=self.sales_period
+                )
+                all_products.append(filtered_product)
+                logger.debug(f"Included product ({inclusion_reason}): {record.product_name} ({self.sales_period} sales: {sales_value})")
+            except Exception as e:
+                logger.warning(f"Error creating filtered product for record {record.record_id}: {e}")
+
+        logger.info(f"✅ Filtering completed: {len(all_products)} products passed all filters")
+        logger.info(f"📊 Inclusion: {included_by_tags} by tags, {included_by_brand} by brand+sales")
+        logger.info(f"📊 Exclusion: {excluded_by_tags} by excluded tags, {excluded_by_brand} by excluded brand keywords, {excluded_by_sales} by low sales")
         logger.info(f"After deduplication: {len(all_products)} unique products")
-        
-        # Step 4: Sort by sales performance
-        all_products.sort(
-            key=lambda p: (-p.quarterly_sales, -p.total_sales, p.product_name.lower())
-        )
-        
+
+        # Step 4: Sort by sales performance (using the configured sales period)
+        if self.sales_period == "MONTHLY":
+            all_products.sort(
+                key=lambda p: (-p.monthly_sales, -p.total_sales, p.product_name.lower())
+            )
+        else:  # QUARTERLY
+            all_products.sort(
+                key=lambda p: (-p.quarterly_sales, -p.total_sales, p.product_name.lower())
+            )
+
         # Assign sort positions (1-based for Shopify)
         for i, product in enumerate(all_products, 1):
             product.sort_position = i
-        
-        logger.info(f"✅ Filtered and sorted {len(all_products)} qualifying products by sales performance")
-        
+
+        logger.info(f"✅ Filtered and sorted {len(all_products)} qualifying products by {self.sales_period} sales performance")
+
+        # Log top 10 products for debugging
+        if all_products:
+            logger.info(f"📋 Top 10 products by {self.sales_period} sales:")
+            for i, product in enumerate(all_products[:10], 1):
+                sales_value = product.monthly_sales if self.sales_period == "MONTHLY" else product.quarterly_sales
+                logger.info(f"  {i}. {product.product_name} - {self.sales_period}: {sales_value}, Total: {product.total_sales}")
+
         self.filtered_products = all_products
         return all_products
 
@@ -244,9 +280,17 @@ class ProductFilter:
         
         return False
     
+    def _get_sales_value(self, record: SalesRecord) -> float:
+        """Get the appropriate sales value based on configured sales period"""
+        if self.sales_period == "MONTHLY":
+            return record.monthly_sales or 0.0
+        else:  # QUARTERLY
+            return record.quarterly_sales or 0.0
+
     def _meets_sales_threshold(self, record: SalesRecord) -> bool:
         """Check if product meets minimum sales threshold"""
-        return record.quarterly_sales >= self.min_quarterly_sales
+        sales_value = self._get_sales_value(record)
+        return sales_value >= self.min_quarterly_sales
     
     def get_filtering_summary(self) -> Dict[str, Any]:
         """Get summary of filtering criteria and results"""

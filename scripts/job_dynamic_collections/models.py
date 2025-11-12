@@ -22,6 +22,7 @@ class SalesRecord(BaseModel):
     
     # Sales data
     quarterly_sales: Optional[float] = 0.0
+    monthly_sales: Optional[float] = 0.0
     total_sales: Optional[float] = 0.0
     
     # Additional fields that might be present
@@ -62,6 +63,7 @@ class SalesRecord(BaseModel):
             tags=tags,
             shopify_id=shopify_id,
             quarterly_sales=float(fields.get("Ventas trimestre", 0) or fields.get("quarterly_sales", 0) or fields.get("trimestre_sales", 0) or 0),
+            monthly_sales=float(fields.get("Monthly total", 0) or fields.get("monthly_sales", 0) or fields.get("ventas_mensuales", 0) or 0),
             total_sales=float(fields.get("Total sale", 0) or fields.get("total_sales", 0) or fields.get("ventas_totales", 0) or 0),
             category=fields.get("category") or fields.get("categoria"),
             country=fields.get("country") or fields.get("pais"),
@@ -74,10 +76,12 @@ class FilteredProduct(BaseModel):
     product_name: str
     brand: str
     quarterly_sales: float
+    monthly_sales: float = 0.0
     total_sales: float = 0.0
     tags: List[str]
     shopify_id: Optional[int] = None
     sort_position: Optional[int] = None  # Position in collection for sorting
+    sales_period: Optional[str] = None  # Track which period was used for filtering
     
     def should_include_in_collection(self) -> bool:
         """Check if product should be included in the collection"""
@@ -120,6 +124,11 @@ class JobType(str, Enum):
     # SEASONAL_PRODUCTS = "seasonalProducts"
     # TRENDING_PRODUCTS = "trendingProducts"
 
+class SalesPeriod(str, Enum):
+    """Sales period types for filtering"""
+    MONTHLY = "MONTHLY"
+    QUARTERLY = "QUARTERLY"
+
 class BaseJobSettings(BaseModel):
     """Base model for job settings from collection metafields"""
     jobType: JobType
@@ -137,22 +146,30 @@ class TopResellProductsJobSettings(BaseJobSettings):
     AIRTABLE_TABLE_ID: str
     AIRTABLE_VIEW_ID: str
     MIN_QUARTERLY_SALES: float = 5.0
+    SALES_PERIOD: SalesPeriod = SalesPeriod.QUARTERLY  # Default to QUARTERLY for backward compatibility
     EXCLUDED_TAGS: Optional[List[str]] = None
     INCLUDED_TAGS: Optional[List[str]] = None
     BRAND_KEYWORDS: List[str] = ["nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma", "pop mart"]
     EXCLUDED_BRAND_KEYWORDS: Optional[List[str]] = None
-    
+
     @validator('jobType')
     def validate_job_type(cls, v):
         if v != JobType.GET_TOP_RESELL_PRODUCTS:
             raise ValueError(f"Invalid job type for TopResellProductsJobSettings: {v}")
         return v
-    
+
     @validator('MIN_QUARTERLY_SALES', pre=True)
     def parse_min_quarterly_sales(cls, v):
         """Convert string to float if needed"""
         if isinstance(v, str):
             return float(v)
+        return v
+
+    @validator('SALES_PERIOD', pre=True)
+    def parse_sales_period(cls, v):
+        """Convert string to SalesPeriod enum if needed"""
+        if isinstance(v, str):
+            return SalesPeriod(v.upper())
         return v
 
 class CollectionWithJobSettings(BaseModel):

@@ -56,7 +56,8 @@ class TopResellProductsJobExecutor(JobExecutor):
                 excluded_brand_keywords=settings.EXCLUDED_BRAND_KEYWORDS,
                 excluded_tags=settings.EXCLUDED_TAGS,
                 included_tags=settings.INCLUDED_TAGS,
-                min_quarterly_sales=settings.MIN_QUARTERLY_SALES
+                min_quarterly_sales=settings.MIN_QUARTERLY_SALES,
+                sales_period=settings.SALES_PERIOD
             )
             
             # Fetch and process sales data from Airtable

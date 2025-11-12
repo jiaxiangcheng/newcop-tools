@@ -76,18 +76,20 @@ class ShopifyClient:
     def get_collection_products(self, collection_id: str) -> List[ShopifyProduct]:
         """Get current products in a collection with pagination support"""
         url = f"{self.base_url}/collections/{collection_id}/products.json"
-        
+
         all_products = []
         page_info = None
         page_size = 250  # Maximum allowed by Shopify API
-        
+
         try:
             while True:
                 # Set up parameters for this request
-                params = {"limit": page_size}
+                # When using page_info, only include page_info parameter (not limit)
                 if page_info:
-                    params["page_info"] = page_info
-                
+                    params = {"page_info": page_info}
+                else:
+                    params = {"limit": page_size}
+
                 response = requests.get(url, headers=self.headers, params=params)
                 response.raise_for_status()
                 
@@ -227,20 +229,22 @@ class ShopifyClient:
     def _get_collection_collects(self, collection_id: str) -> List[Dict[str, Any]]:
         """Get all collects for a collection with pagination support"""
         url = f"{self.base_url}/collects.json"
-        
+
         all_collects = []
         page_info = None
         page_size = 250  # Maximum allowed by Shopify API
-        
+
         try:
             while True:
                 # Set up parameters for this request
-                params = {
-                    "collection_id": collection_id,
-                    "limit": page_size
-                }
+                # When using page_info, only include page_info parameter (not collection_id or limit)
                 if page_info:
-                    params["page_info"] = page_info
+                    params = {"page_info": page_info}
+                else:
+                    params = {
+                        "collection_id": collection_id,
+                        "limit": page_size
+                    }
                 
                 response = requests.get(url, headers=self.headers, params=params)
                 response.raise_for_status()
@@ -474,18 +478,20 @@ class ShopifyClient:
     def get_all_collections(self) -> List[Dict[str, Any]]:
         """Get all collections from Shopify using collection_listings endpoint with pagination support"""
         url = f"{self.base_url}/collection_listings.json"
-        
+
         all_collections = []
         page_info = None
         page_size = 250  # Maximum allowed by Shopify API
-        
+
         try:
             while True:
                 # Set up parameters for this request
-                params = {"limit": page_size}
+                # When using page_info, only include page_info parameter (not limit)
                 if page_info:
-                    params["page_info"] = page_info
-                
+                    params = {"page_info": page_info}
+                else:
+                    params = {"limit": page_size}
+
                 response = requests.get(url, headers=self.headers, params=params)
                 response.raise_for_status()
                 
@@ -707,25 +713,24 @@ class ShopifyClient:
     def get_all_active_products_with_variants(self) -> List[Dict[str, Any]]:
         """Get all active products with their variants and inventory information"""
         url = f"{self.base_url}/products.json"
-        
+
         all_products = []
         page_info = None
         page_size = 250  # Maximum allowed by Shopify API
-        
+
         try:
             while True:
                 # Set up parameters for this request
-                params = {
-                    "limit": page_size,
-                    "fields": "id,title,handle,vendor,tags,variants"  # Include variants field
-                }
-                
-                # Only add status parameter on first request (not with page_info)
-                if not page_info:
-                    params["status"] = "active"  # Only get active products
+                # When using page_info, only include page_info parameter
+                if page_info:
+                    params = {"page_info": page_info}
                 else:
-                    params["page_info"] = page_info
-                
+                    params = {
+                        "limit": page_size,
+                        "fields": "id,title,handle,vendor,tags,variants",
+                        "status": "active"
+                    }
+
                 response = requests.get(url, headers=self.headers, params=params)
                 response.raise_for_status()
                 
@@ -1010,13 +1015,14 @@ class ShopifyClient:
             while True:
                 page_count += 1
                 logger.info(f"📄 Fetching page {page_count} (batch size: {page_size})...")
-                
+
                 # Set up parameters for this request
-                params = {"limit": page_size}
+                # When using page_info, only include page_info parameter (not limit)
                 if page_info:
-                    params["page_info"] = page_info
+                    params = {"page_info": page_info}
                     logger.info(f"🔗 Using page_info for pagination: {page_info[:50]}...")
                 else:
+                    params = {"limit": page_size}
                     logger.info("🏁 This is the first page (no page_info)")
                 
                 # Add retry logic for network issues with more aggressive retries
