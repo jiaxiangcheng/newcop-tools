@@ -1606,3 +1606,86 @@ class ShopifyClient:
 
         logger.debug(f"Order not found by number: {order_number}")
         return None
+
+    def update_product_metafield_graphql(
+        self,
+        product_id: int,
+        namespace: str,
+        key: str,
+        value: str,
+        metafield_type: str = "single_line_text_field"
+    ) -> bool:
+        """
+        Update or create a product metafield using GraphQL API
+
+        Args:
+            product_id: Shopify product ID (numeric)
+            namespace: Metafield namespace
+            key: Metafield key
+            value: Metafield value
+            metafield_type: Metafield type (default: single_line_text_field)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Convert product ID to GID
+        product_gid = f"gid://shopify/Product/{product_id}"
+
+        # GraphQL mutation to set metafield
+        mutation = """
+        mutation setProductMetafield($metafields: [MetafieldsSetInput!]!) {
+          metafieldsSet(metafields: $metafields) {
+            metafields {
+              id
+              namespace
+              key
+              value
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+        """
+
+        variables = {
+            "metafields": [
+                {
+                    "ownerId": product_gid,
+                    "namespace": namespace,
+                    "key": key,
+                    "value": value,
+                    "type": metafield_type
+                }
+            ]
+        }
+
+        try:
+            response = self.execute_graphql(mutation, variables)
+
+            # Check for errors
+            if "errors" in response:
+                logger.error(f"GraphQL errors updating product {product_id} metafield: {response['errors']}")
+                return False
+
+            # Check for user errors
+            data = response.get("data", {})
+            metafields_set = data.get("metafieldsSet", {})
+            user_errors = metafields_set.get("userErrors", [])
+
+            if user_errors:
+                logger.error(f"User errors updating product {product_id} metafield: {user_errors}")
+                return False
+
+            metafields = metafields_set.get("metafields", [])
+            if metafields:
+                logger.debug(f"Successfully updated product {product_id} metafield {namespace}.{key} = {value}")
+                return True
+            else:
+                logger.warning(f"No metafield returned for product {product_id}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Exception updating product {product_id} metafield: {e}")
+            return False
