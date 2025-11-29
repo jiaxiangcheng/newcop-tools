@@ -60,6 +60,7 @@ def show_menu():
     print("5. 📥 Airtable Files Downloader - Download PDF files from Airtable CSV export")
     print(f"6. 📈 Customer Order History - Analyze and sync customer order counts (runs daily at 00:00)")
     print("7. 🏅 Best Seller Badge - Assign best seller badges to top products (runs monthly on 1st)")
+    print("8. 💰 Product Discounts - Calculate and sync product discount percentages (runs daily at 00:00)")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -645,6 +646,69 @@ def run_best_seller_badge() -> bool:
         print(f"❌ Unexpected error running best seller badge: {e}")
         return False
 
+def run_product_discounts() -> bool:
+    """Run the product discounts script with user mode selection"""
+    try:
+        print("\n💰 Starting Product Discounts Script...")
+        print("=" * 60)
+
+        # Ask user for execution mode
+        print("Select execution mode:")
+        print("1. 🔧 Manual Sync (run once)")
+        print("2. 🔄 Scheduled Mode (run daily at 00:00)")
+        print("3. 🧪 Dry Run (analyze changes only)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True  # Return to main menu
+                elif mode_choice == "1":
+                    # Manual sync
+                    from scripts.job_set_discounts_to_products.main import run_product_discounts
+                    success = run_product_discounts(mode="manual", dry_run=False)
+                    break
+                elif mode_choice == "2":
+                    # Scheduled mode
+                    print("\n⚠️  Scheduled mode will run daily at 00:00. Press Ctrl+C to stop.")
+                    confirm = input("Continue? (y/N): ").strip().lower()
+                    if confirm in ['y', 'yes']:
+                        from scripts.job_set_discounts_to_products.main import run_product_discounts
+                        success = run_product_discounts(mode="scheduled", dry_run=False)
+                    else:
+                        success = True  # User cancelled
+                    break
+                elif mode_choice == "3":
+                    # Dry run
+                    from scripts.job_set_discounts_to_products.main import run_product_discounts
+                    success = run_product_discounts(mode="manual", dry_run=True)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Product Discounts Script completed successfully!")
+        else:
+            print("❌ Product Discounts Script completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing product discounts script: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install APScheduler")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running product discounts: {e}")
+        return False
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -681,6 +745,7 @@ def main():
         "5": run_airtable_downloader,
         "6": run_customer_order_history,
         "7": run_best_seller_badge,
+        "8": run_product_discounts,
     }
     
     # Check if we're in a virtual environment
