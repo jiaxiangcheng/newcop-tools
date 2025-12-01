@@ -54,6 +54,9 @@ class ExcelWriter:
         ("Fulfillment Status", "fulfillment_status"),
         ("Is Cancelled", "is_cancelled"),
         ("Order Status Notes", "order_status_notes"),
+        ("Refund Amount", "refund_amount"),  # New column for partial refund amount
+        ("Return Status", "return_status"),  # New column for return in process
+        ("Issue Type", "issue_type"),  # New column for issue type
         ("Customer Email", "customer_email"),
         ("Customer First Name", "customer_first_name"),
         ("Customer Last Name", "customer_last_name"),
@@ -275,6 +278,8 @@ class ExcelWriter:
         worksheet.column_dimensions['B'].width = 20
         worksheet.column_dimensions['C'].width = 25
         worksheet.column_dimensions['D'].width = 20
+        worksheet.column_dimensions['E'].width = 20
+        worksheet.column_dimensions['F'].width = 20
 
     def _calculate_country_stats(self, records: List[EnrichedRecord]) -> List[tuple]:
         """Calculate country distribution statistics"""
@@ -381,7 +386,7 @@ class ExcelWriter:
     def _calculate_review_orders(self, records: List[EnrichedRecord]) -> List[tuple]:
         """
         Calculate orders that require review (yellow or red rows)
-        Returns list of (row_number, order_reference, issue_type, financial_status, fulfillment_status, severity)
+        Returns list of (row_number, order_reference, issue_type, financial_status, fulfillment_status, refund_amount, return_status, severity)
         severity: 'urgent' for red rows, 'warning' for yellow rows
         """
         review_orders = []
@@ -389,8 +394,10 @@ class ExcelWriter:
         for idx, record in enumerate(records, start=2):  # Start at row 2 (after header)
             financial_status = record.financial_status.upper() if record.financial_status else ""
             fulfillment_status = record.fulfillment_status.upper() if record.fulfillment_status else ""
+            refund_amount = record.refund_amount  # Get refund amount from property
+            return_status = record.return_status  # Get return status from property
+            issue_type = record.issue_type  # Get issue type directly from Newcop Data
 
-            issue_type = ""
             severity = ""
 
             # Check if this order needs review
@@ -398,12 +405,10 @@ class ExcelWriter:
 
             # Check fulfillment status first (higher priority - red)
             if fulfillment_status and fulfillment_status == "UNFULFILLED":
-                issue_type = "Unfulfilled Order"
                 severity = "urgent"
                 needs_review = True
             # Check financial status (yellow)
             elif financial_status and financial_status != "PAID":
-                issue_type = f"Payment Issue ({financial_status})"
                 severity = "warning"
                 needs_review = True
 
@@ -412,9 +417,11 @@ class ExcelWriter:
                 review_orders.append((
                     idx,  # Row number in Newcop Data sheet
                     order_ref,
-                    issue_type,
+                    issue_type if issue_type else "",  # Use issue_type from Newcop Data
                     financial_status if financial_status else "N/A",
                     fulfillment_status if fulfillment_status else "N/A",
+                    refund_amount if refund_amount else "",  # Include refund amount
+                    return_status if return_status else "",  # Include return status
                     severity
                 ))
 
@@ -428,7 +435,7 @@ class ExcelWriter:
             worksheet: Worksheet to write to
             start_row: Starting row number
             title: Section title
-            review_orders: List of (row_number, order_reference, issue_type, financial_status, fulfillment_status, severity) tuples
+            review_orders: List of (row_number, order_reference, issue_type, financial_status, fulfillment_status, refund_amount, return_status, severity) tuples
 
         Returns:
             Next available row number
@@ -440,17 +447,17 @@ class ExcelWriter:
         title_cell.value = title
         title_cell.font = Font(bold=True, size=12, color="FFFFFF")
         title_cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        worksheet.merge_cells(f'A{row_idx}:D{row_idx}')
+        worksheet.merge_cells(f'A{row_idx}:F{row_idx}')  # Extended to F to include return status column
         row_idx += 1
 
         # Summary counts
-        urgent_count = sum(1 for _, _, _, _, _, severity in review_orders if severity == "urgent")
-        warning_count = sum(1 for _, _, _, _, _, severity in review_orders if severity == "warning")
+        urgent_count = sum(1 for _, _, _, _, _, _, _, severity in review_orders if severity == "urgent")
+        warning_count = sum(1 for _, _, _, _, _, _, _, severity in review_orders if severity == "warning")
 
         summary_cell = worksheet.cell(row=row_idx, column=1)
         summary_cell.value = f"🔴 Urgent: {urgent_count}  |  🟡 Warning: {warning_count}  |  Total: {len(review_orders)}"
         summary_cell.font = Font(bold=True, size=11)
-        worksheet.merge_cells(f'A{row_idx}:D{row_idx}')
+        worksheet.merge_cells(f'A{row_idx}:F{row_idx}')  # Extended to F
         row_idx += 1
 
         if not review_orders:
@@ -458,12 +465,12 @@ class ExcelWriter:
             no_issues_cell = worksheet.cell(row=row_idx, column=1)
             no_issues_cell.value = "✅ All orders are in good standing - no issues found!"
             no_issues_cell.font = Font(color="008000", bold=True)  # Green text
-            worksheet.merge_cells(f'A{row_idx}:D{row_idx}')
+            worksheet.merge_cells(f'A{row_idx}:F{row_idx}')  # Extended to F
             row_idx += 1
             return row_idx
 
         # Header row
-        headers = ["Order Reference", "Issue Type", "Financial Status", "Fulfillment Status"]
+        headers = ["Order Reference", "Issue Type", "Financial Status", "Fulfillment Status", "Refund Amount", "Return Status"]
         for col_idx, header in enumerate(headers, start=1):
             cell = worksheet.cell(row=row_idx, column=col_idx)
             cell.value = header
@@ -473,7 +480,7 @@ class ExcelWriter:
         row_idx += 1
 
         # Data rows with hyperlinks
-        for newcop_row_num, order_ref, issue_type, financial_status, fulfillment_status, severity in review_orders:
+        for newcop_row_num, order_ref, issue_type, financial_status, fulfillment_status, refund_amount, return_status, severity in review_orders:
             # Column 1: Order Reference with hyperlink
             cell = worksheet.cell(row=row_idx, column=1)
             cell.value = order_ref
@@ -503,6 +510,22 @@ class ExcelWriter:
             cell = worksheet.cell(row=row_idx, column=4)
             cell.value = fulfillment_status
             cell.alignment = Alignment(horizontal="center")
+
+            # Column 5: Refund Amount
+            cell = worksheet.cell(row=row_idx, column=5)
+            cell.value = refund_amount
+            cell.alignment = Alignment(horizontal="center")
+            # Bold if there's a refund amount
+            if refund_amount:
+                cell.font = Font(bold=True, color="FF0000")  # Bold red for refund amounts
+
+            # Column 6: Return Status
+            cell = worksheet.cell(row=row_idx, column=6)
+            cell.value = return_status
+            cell.alignment = Alignment(horizontal="center")
+            # Bold orange if there's a return in process
+            if return_status:
+                cell.font = Font(bold=True, color="FF6600")  # Bold orange for return status
 
             row_idx += 1
 

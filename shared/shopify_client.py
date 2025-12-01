@@ -1432,6 +1432,23 @@ class ShopifyClient:
             displayFinancialStatus
             displayFulfillmentStatus
             cancelledAt
+            refunds {
+              totalRefundedSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+            }
+            returns(first: 10) {
+              edges {
+                node {
+                  id
+                  status
+                  name
+                }
+              }
+            }
             lineItems(first: 10) {
               edges {
                 node {
