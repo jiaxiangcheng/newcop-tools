@@ -285,6 +285,44 @@ class OrderEnricher:
                 )
                 line_items.append(line_item)
 
+            # Parse refund data
+            refund_amount = None
+            refund_currency = None
+            refunds_raw = order_data.get("refunds", [])
+            if refunds_raw:
+                # Calculate total refund amount across all refunds
+                total_refund = 0.0
+                for refund in refunds_raw:
+                    refunded_set = refund.get("totalRefundedSet", {})
+                    shop_money = refunded_set.get("shopMoney", {})
+                    if shop_money:
+                        amount_str = shop_money.get("amount")
+                        if amount_str:
+                            try:
+                                total_refund += float(amount_str)
+                                if not refund_currency:
+                                    refund_currency = shop_money.get("currencyCode", "EUR")
+                            except (ValueError, TypeError):
+                                pass
+
+                if total_refund > 0:
+                    refund_amount = total_refund
+
+            # Parse return data
+            return_status = None
+            has_active_return = False
+            returns_raw = order_data.get("returns", {}).get("edges", [])
+            if returns_raw:
+                for edge in returns_raw:
+                    node = edge.get("node", {})
+                    status = node.get("status", "")
+
+                    # Check if return is in progress (not CLOSED, CANCELLED, etc.)
+                    if status and status.upper() in ["OPEN", "IN_PROGRESS", "REQUESTED", "RETURN_IN_PROGRESS"]:
+                        has_active_return = True
+                        return_status = status
+                        break
+
             # Create ShopifyOrderData
             return ShopifyOrderData(
                 order_id=order_data.get("id"),
@@ -295,7 +333,11 @@ class OrderEnricher:
                 customerJourneySummary=customer_journey,
                 displayFinancialStatus=order_data.get("displayFinancialStatus"),
                 displayFulfillmentStatus=order_data.get("displayFulfillmentStatus"),
-                cancelledAt=order_data.get("cancelledAt")
+                cancelledAt=order_data.get("cancelledAt"),
+                refund_amount=refund_amount,
+                refund_currency=refund_currency,
+                return_status=return_status,
+                has_active_return=has_active_return
             )
 
         except Exception as e:

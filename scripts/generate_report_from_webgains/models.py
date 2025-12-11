@@ -72,6 +72,10 @@ class ShopifyOrderData(BaseModel):
     financial_status: Optional[str] = Field(None, alias="displayFinancialStatus")
     fulfillment_status: Optional[str] = Field(None, alias="displayFulfillmentStatus")
     cancelled_at: Optional[str] = Field(None, alias="cancelledAt")
+    refund_amount: Optional[float] = None  # Total refunded amount in EUR
+    refund_currency: Optional[str] = None  # Currency code for refund
+    return_status: Optional[str] = None  # Return status (e.g., "IN_PROGRESS", "CLOSED")
+    has_active_return: bool = False  # Whether there's a return in progress
     error: Optional[str] = None
 
     class Config:
@@ -277,6 +281,56 @@ class EnrichedRecord(BaseModel):
                 notes.append(status)
 
         return " | ".join(notes) if notes else ""
+
+    @property
+    def refund_amount(self) -> str:
+        """Refund amount in EUR for partially refunded orders"""
+        if not self.shopify_order_data or self.shopify_order_data.refund_amount is None:
+            return ""
+
+        # Only show refund amount if it's a partial refund (financial_status contains PARTIALLY)
+        financial_status = self.shopify_order_data.financial_status or ""
+        if "PARTIALLY" in financial_status.upper():
+            # Format as EUR with 2 decimal places
+            amount = self.shopify_order_data.refund_amount
+            currency = self.shopify_order_data.refund_currency or "EUR"
+            return f"{amount:.2f} {currency}"
+
+        return ""
+
+    @property
+    def return_status(self) -> str:
+        """Return status (IN_PROGRESS, CLOSED, etc.)"""
+        if not self.shopify_order_data:
+            return ""
+
+        if self.shopify_order_data.has_active_return:
+            return "RETURN IN PROCESS"
+
+        return ""
+
+    @property
+    def issue_type(self) -> str:
+        """Issue type based on financial and fulfillment status"""
+        if not self.shopify_order_data:
+            return ""
+
+        financial_status = (self.shopify_order_data.financial_status or "").upper()
+        fulfillment_status = (self.shopify_order_data.fulfillment_status or "").upper()
+
+        # Priority 1: If refunded, return "PEDIDO CANCELADO"
+        if financial_status == "REFUNDED":
+            return "PEDIDO CANCELADO"
+
+        # Priority 2: If unfulfilled, return "PEDIDO NO PREPARADO"
+        if fulfillment_status == "UNFULFILLED":
+            return "PEDIDO NO PREPARADO"
+
+        # Priority 3: If partially refunded, return "Issue (PARTIALLY REFUNDED)"
+        if "PARTIALLY" in financial_status and "REFUND" in financial_status:
+            return "Issue (PARTIALLY REFUNDED)"
+
+        return ""
 
     @property
     def error_message(self) -> str:

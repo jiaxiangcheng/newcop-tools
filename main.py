@@ -61,6 +61,7 @@ def show_menu():
     print(f"6. 📈 Customer Order History - Analyze and sync customer order counts (runs daily at 00:00)")
     print("7. 🏅 Best Seller Badge - Assign best seller badges to top products (runs monthly on 1st)")
     print("8. 💰 Product Discounts - Calculate and sync product discount percentages (runs daily at 00:00)")
+    print("9. 📝 Set Variants Metafield - Sync product variant names to custom.variants metafield")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -721,6 +722,90 @@ def run_product_discounts() -> bool:
         print(f"❌ Unexpected error running product discounts: {e}")
         return False
 
+def run_set_variants_metafield() -> bool:
+    """Run the set variants metafield script with user mode selection"""
+    try:
+        print("\n📝 Starting Set Variants Metafield Script...")
+        print("=" * 60)
+
+        # Ask user for execution mode
+        print("Select execution mode:")
+        print("1. 🔧 Update Empty Only (default - only update products with empty custom.variants)")
+        print("2. 🔄 Update All (force update all products, even with existing values)")
+        print("3. 🧪 Dry Run Empty Only (analyze empty products only)")
+        print("4. 🧪 Dry Run All (analyze all products)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True  # Return to main menu
+                elif mode_choice == "1":
+                    # Update empty only
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set_variants_to_product_metafield/main.py"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice == "2":
+                    # Update all
+                    print("\n⚠️  This will update ALL products, even those with existing custom.variants values!")
+                    confirm = input("Continue? (y/N): ").strip().lower()
+                    if confirm in ['y', 'yes']:
+                        import subprocess
+                        result = subprocess.run(
+                            ["python", "scripts/set_variants_to_product_metafield/main.py", "--all"],
+                            cwd=os.getcwd()
+                        )
+                        success = result.returncode == 0
+                    else:
+                        success = True  # User cancelled
+                    break
+                elif mode_choice == "3":
+                    # Dry run empty only
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set_variants_to_product_metafield/main.py", "--dry-run"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice == "4":
+                    # Dry run all
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set_variants_to_product_metafield/main.py", "--all", "--dry-run"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-4.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Set Variants Metafield Script completed successfully!")
+        else:
+            print("❌ Set Variants Metafield Script completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing set variants metafield script: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running set variants metafield: {e}")
+        return False
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -758,6 +843,7 @@ def main():
         "6": run_customer_order_history,
         "7": run_best_seller_badge,
         "8": run_product_discounts,
+        "9": run_set_variants_metafield,
     }
     
     # Check if we're in a virtual environment
