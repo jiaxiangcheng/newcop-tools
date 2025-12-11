@@ -53,6 +53,15 @@ class ProductFilter:
         all_products = []
 
         logger.info(f"Starting to filter {len(sales_records)} sales records with include/exclude logic")
+        logger.info(f"=" * 80)
+        logger.info(f"Filter Configuration:")
+        logger.info(f"  - Sales Period: {self.sales_period}")
+        logger.info(f"  - Min Sales Threshold: {self.min_quarterly_sales}")
+        logger.info(f"  - Brand Keywords: {self.brand_keywords}")
+        logger.info(f"  - Included Tags: {self.included_tags}")
+        logger.info(f"  - Excluded Tags: {self.excluded_tags}")
+        logger.info(f"  - Excluded Brand Keywords: {self.excluded_brand_keywords}")
+        logger.info(f"=" * 80)
 
         # Counters for debugging
         included_by_tags = 0
@@ -61,13 +70,26 @@ class ProductFilter:
         excluded_by_brand = 0
         excluded_by_sales = 0
 
-        for record in sales_records:
+        for idx, record in enumerate(sales_records, 1):
+            # Get sales value for this record
+            sales_value = self._get_sales_value(record)
+
+            logger.info(f"\n🔍 [{idx}/{len(sales_records)}] Evaluating: {record.product_name}")
+            logger.info(f"   📊 Sales: {self.sales_period}={sales_value}, Total={record.total_sales}")
+            logger.info(f"   🏷️  Tags: {record.tags}")
+            logger.info(f"   🏢 Brand: {record.brand}")
+            logger.info(f"   🆔 Shopify ID: {record.shopify_id}")
+
             # Step 1: Check if product should be INCLUDED
             # Include if: (has included_tags) OR (has brand_keywords AND meets sales threshold)
 
             has_included_tags = self._has_required_included_tags(record) if self.included_tags else False
             has_brand_keyword = self._has_required_brand_keyword(record) if self.brand_keywords else False
             meets_sales = self._meets_sales_threshold(record)
+
+            logger.info(f"   ✓ Has included tags: {has_included_tags}")
+            logger.info(f"   ✓ Has brand keyword: {has_brand_keyword}")
+            logger.info(f"   ✓ Meets sales threshold (>={self.min_quarterly_sales}): {meets_sales}")
 
             # Inclusion logic: included_tags (no sales requirement) OR (brand_keywords AND sales threshold)
             should_include = False
@@ -77,12 +99,19 @@ class ProductFilter:
                 should_include = True
                 inclusion_reason = "included_tags"
                 included_by_tags += 1
+                logger.info(f"   ✅ INCLUDED by included_tags (no sales requirement)")
             elif has_brand_keyword and meets_sales:
                 should_include = True
                 inclusion_reason = "brand_keywords_and_sales"
                 included_by_brand += 1
+                logger.info(f"   ✅ INCLUDED by brand_keywords AND sales threshold")
             elif has_brand_keyword and not meets_sales:
                 excluded_by_sales += 1
+                logger.info(f"   ❌ EXCLUDED: Has brand keyword but sales ({sales_value}) < threshold ({self.min_quarterly_sales})")
+            elif not has_brand_keyword:
+                logger.info(f"   ❌ EXCLUDED: No brand keyword match")
+            else:
+                logger.info(f"   ❌ EXCLUDED: Does not meet inclusion criteria")
 
             if not should_include:
                 continue
@@ -93,19 +122,16 @@ class ProductFilter:
 
             if has_excluded_tags:
                 excluded_by_tags += 1
-                logger.debug(f"Excluded by tags: {record.product_name}")
+                logger.info(f"   ❌ EXCLUDED by excluded_tags: {self._get_matching_excluded_tags(record)}")
                 continue
 
             if has_excluded_brand:
                 excluded_by_brand += 1
-                logger.debug(f"Excluded by brand keyword: {record.product_name}")
+                logger.info(f"   ❌ EXCLUDED by excluded_brand_keyword: {self._get_matching_excluded_brand(record)}")
                 continue
 
             # Product passed all filters, add it
             try:
-                # Get the actual sales value used for filtering
-                sales_value = self._get_sales_value(record)
-
                 filtered_product = FilteredProduct(
                     record_id=record.record_id,
                     product_name=record.product_name or "",
@@ -118,9 +144,9 @@ class ProductFilter:
                     sales_period=self.sales_period
                 )
                 all_products.append(filtered_product)
-                logger.debug(f"Included product ({inclusion_reason}): {record.product_name} ({self.sales_period} sales: {sales_value})")
+                logger.info(f"   ✅ PASSED all filters - Added to collection")
             except Exception as e:
-                logger.warning(f"Error creating filtered product for record {record.record_id}: {e}")
+                logger.warning(f"   ❌ Error creating filtered product: {e}")
 
         logger.info(f"✅ Filtering completed: {len(all_products)} products passed all filters")
         logger.info(f"📊 Inclusion: {included_by_tags} by tags, {included_by_brand} by brand+sales")
@@ -291,7 +317,35 @@ class ProductFilter:
         """Check if product meets minimum sales threshold"""
         sales_value = self._get_sales_value(record)
         return sales_value >= self.min_quarterly_sales
-    
+
+    def _get_matching_excluded_tags(self, record: SalesRecord) -> List[str]:
+        """Get list of excluded tags that match the product"""
+        if not record.tags or not self.excluded_tags:
+            return []
+
+        tags_lower = [tag.lower().strip() for tag in record.tags]
+        matching_tags = []
+
+        for excluded_tag in self.excluded_tags:
+            if excluded_tag.lower() in tags_lower:
+                matching_tags.append(excluded_tag)
+
+        return matching_tags
+
+    def _get_matching_excluded_brand(self, record: SalesRecord) -> Optional[str]:
+        """Get the excluded brand keyword that matches the product"""
+        if not self.excluded_brand_keywords:
+            return None
+
+        product_name = (record.product_name or "").lower()
+        brand = (record.brand or "").lower()
+
+        for keyword in self.excluded_brand_keywords:
+            if keyword.lower() in product_name or keyword.lower() in brand:
+                return keyword
+
+        return None
+
     def get_filtering_summary(self) -> Dict[str, Any]:
         """Get summary of filtering criteria and results"""
         return {

@@ -100,30 +100,56 @@ class DynamicCollectionManager:
         logger.info(f"  - Shop domain: {self.shopify_shop_domain}")
         return True
     
-    def discover_collections_with_jobs(self) -> List[CollectionWithJobSettings]:
-        """Discover collections that have job_settings metafields configured"""
-        logger.info("Discovering collections with job settings...")
-        
+    def discover_collections_with_jobs(self, collection_id: Optional[str] = None) -> List[CollectionWithJobSettings]:
+        """Discover collections that have job_settings metafields configured
+
+        Args:
+            collection_id: Optional collection ID to filter for a specific collection
+        """
         try:
-            collections_with_jobs_data = self.shopify_client.get_collections_with_job_settings()
             collections_with_jobs = []
-            
-            for collection_data in collections_with_jobs_data:
-                try:
-                    collection_with_settings = CollectionWithJobSettings.from_shopify_collection_and_job_data(
-                        collection_data["collection"],
-                        collection_data["job_settings"]
-                    )
-                    collections_with_jobs.append(collection_with_settings)
-                    logger.info(f"Found collection '{collection_with_settings.collection_title}' with job type '{collection_with_settings.job_settings.jobType}'")
-                except Exception as e:
-                    collection_title = collection_data["collection"].get("title", "Unknown")
-                    logger.warning(f"Failed to parse job settings for collection '{collection_title}': {e}")
-                    continue
-            
+
+            # Optimized path: If collection_id is specified, directly fetch that single collection
+            if collection_id:
+                logger.info(f"🎯 Fetching specific collection ID: {collection_id}...")
+
+                collection_data = self.shopify_client.get_collection_with_job_settings(collection_id)
+
+                if collection_data:
+                    try:
+                        collection_with_settings = CollectionWithJobSettings.from_shopify_collection_and_job_data(
+                            collection_data["collection"],
+                            collection_data["job_settings"]
+                        )
+                        collections_with_jobs.append(collection_with_settings)
+                        logger.info(f"✅ Found collection '{collection_with_settings.collection_title}' with job type '{collection_with_settings.job_settings.jobType}'")
+                    except Exception as e:
+                        collection_title = collection_data["collection"].get("title", "Unknown")
+                        logger.error(f"Failed to parse job settings for collection '{collection_title}': {e}")
+                else:
+                    logger.error(f"❌ Collection with ID '{collection_id}' not found or has no job settings configured")
+
+            # Default path: Scan all collections
+            else:
+                logger.info("Discovering all collections with job settings...")
+                collections_with_jobs_data = self.shopify_client.get_collections_with_job_settings()
+
+                for collection_data in collections_with_jobs_data:
+                    try:
+                        collection_with_settings = CollectionWithJobSettings.from_shopify_collection_and_job_data(
+                            collection_data["collection"],
+                            collection_data["job_settings"]
+                        )
+                        collections_with_jobs.append(collection_with_settings)
+                        logger.info(f"Found collection '{collection_with_settings.collection_title}' with job type '{collection_with_settings.job_settings.jobType}'")
+                    except Exception as e:
+                        collection_title = collection_data["collection"].get("title", "Unknown")
+                        logger.warning(f"Failed to parse job settings for collection '{collection_title}': {e}")
+                        continue
+
             logger.info(f"Discovered {len(collections_with_jobs)} collections with valid job settings")
             return collections_with_jobs
-            
+
         except Exception as e:
             logger.error(f"Failed to discover collections with jobs: {e}")
             raise
@@ -228,34 +254,44 @@ class DynamicCollectionManager:
                 error = result.get("error", result.get("message", "Unknown error"))
                 print(f"  - {collection_title}: {error}")
     
-    def run(self) -> Dict[str, Any]:
-        """Run the complete dynamic collection management process"""
-        logger.info("Starting dynamic collection management process...")
-        
+    def run(self, collection_id: Optional[str] = None) -> Dict[str, Any]:
+        """Run the complete dynamic collection management process
+
+        Args:
+            collection_id: Optional collection ID to run a specific collection only
+        """
+        if collection_id:
+            logger.info(f"Starting dynamic collection management for collection ID: {collection_id}...")
+        else:
+            logger.info("Starting dynamic collection management process...")
+
         try:
             # Validate environment
             if not self.validate_environment():
                 raise ValueError("Environment validation failed")
-            
+
             # Discover collections with job settings
-            collections_with_jobs = self.discover_collections_with_jobs()
-            
+            collections_with_jobs = self.discover_collections_with_jobs(collection_id=collection_id)
+
             if not collections_with_jobs:
-                logger.warning("No collections found with job settings configured")
+                if collection_id:
+                    logger.warning(f"Collection '{collection_id}' not found or has no job settings configured")
+                else:
+                    logger.warning("No collections found with job settings configured")
                 return {
-                    "success": True,
-                    "message": "No collections found with job settings configured",
+                    "success": False,
+                    "message": f"Collection '{collection_id}' not found" if collection_id else "No collections found with job settings configured",
                     "collections_processed": 0,
                     "job_results": []
                 }
-            
+
             # Execute jobs for all collections
             job_results = self.execute_all_collection_jobs(collections_with_jobs)
-            
+
             # Calculate overall success
             successful_jobs = sum(1 for result in job_results if result.get("success"))
             overall_success = successful_jobs > 0
-            
+
             # Prepare final result
             result = {
                 "success": overall_success,
@@ -265,12 +301,12 @@ class DynamicCollectionManager:
                 "failed_jobs": len(job_results) - successful_jobs,
                 "job_results": job_results
             }
-            
+
             logger.info("Dynamic collection management completed!")
             logger.info(f"Final summary: {successful_jobs}/{len(job_results)} jobs successful")
-            
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Dynamic collection management failed: {e}")
             return {"success": False, "error": str(e)}
@@ -382,46 +418,53 @@ class DynamicCollectionManager:
             logger.error(f"Error getting status: {e}")
             return {"error": str(e)}
 
-def run_dynamic_collections(mode: str = "manual", dry_run: bool = False) -> bool:
+def run_dynamic_collections(mode: str = "manual", dry_run: bool = False, collection_id: Optional[str] = None) -> bool:
     """
     Entry point for dynamic collections script
-    
+
     Args:
         mode: "manual" for one-time sync, "scheduled" for continuous mode
         dry_run: Whether to run in dry-run mode (analysis only)
-    
+        collection_id: Optional collection ID to run a specific collection only
+
     Returns:
         Boolean indicating success
     """
     try:
         manager = DynamicCollectionManager(dry_run=dry_run)
-        
+
         # Validate environment
         if not manager.validate_environment():
             return False
-        
+
         if mode == "scheduled":
+            if collection_id:
+                logger.warning("Collection ID filtering is not supported in scheduled mode. Ignoring collection_id parameter.")
+
             # Setup and start scheduler
             if not manager.setup_scheduler():
                 return False
-            
+
             manager.start_scheduled_mode()
             return True
-            
+
         else:  # manual mode
             # Run single sync
             if dry_run:
                 logger.info("🧪 Running in DRY RUN mode - no changes will be made")
-            
-            result = manager.run()
-            
+
+            if collection_id:
+                logger.info(f"🎯 Running for specific collection ID: {collection_id}")
+
+            result = manager.run(collection_id=collection_id)
+
             if result["success"]:
                 print("\n✅ Dynamic collection management completed successfully!")
                 print(f"🔍 Discovered {result.get('collections_discovered', 0)} collections with job settings")
                 print(f"⚙️  Processed {result.get('collections_processed', 0)} collection jobs")
                 print(f"✅ Successful: {result.get('successful_jobs', 0)}")
                 print(f"❌ Failed: {result.get('failed_jobs', 0)}")
-                
+
                 # Print detailed summary
                 if result.get('job_results'):
                     manager.print_job_execution_summary(result['job_results'])
@@ -429,9 +472,9 @@ def run_dynamic_collections(mode: str = "manual", dry_run: bool = False) -> bool
                 error_msg = result.get('error', result.get('message', 'Unknown error'))
                 print(f"\n❌ Dynamic collection management failed: {error_msg}")
                 return False
-            
+
             return True
-            
+
     except KeyboardInterrupt:
         print("\n⏹️  Process interrupted by user")
         return False
@@ -442,14 +485,16 @@ def run_dynamic_collections(mode: str = "manual", dry_run: bool = False) -> bool
 if __name__ == "__main__":
     # Support command line arguments
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='Dynamic Collections Management Script')
     parser.add_argument('--mode', choices=['manual', 'scheduled'], default='manual',
                       help='Execution mode (default: manual)')
     parser.add_argument('--dry-run', action='store_true',
                       help='Run in dry-run mode (analyze only, no changes)')
-    
+    parser.add_argument('--collection-id', type=str, default=None,
+                      help='Specific collection ID to run (manual mode only)')
+
     args = parser.parse_args()
-    
-    success = run_dynamic_collections(mode=args.mode, dry_run=args.dry_run)
+
+    success = run_dynamic_collections(mode=args.mode, dry_run=args.dry_run, collection_id=args.collection_id)
     sys.exit(0 if success else 1)
