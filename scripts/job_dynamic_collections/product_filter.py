@@ -154,13 +154,15 @@ class ProductFilter:
         logger.info(f"After deduplication: {len(all_products)} unique products")
 
         # Step 4: Sort by sales performance (using the configured sales period)
+        # Primary sort: sales value based on period (descending)
+        # Secondary sort: product_name (A to Z, ascending)
         if self.sales_period == "MONTHLY":
             all_products.sort(
-                key=lambda p: (-p.monthly_sales, -p.total_sales, p.product_name.lower())
+                key=lambda p: (-p.monthly_sales, p.product_name.lower())
             )
         else:  # QUARTERLY
             all_products.sort(
-                key=lambda p: (-p.quarterly_sales, -p.total_sales, p.product_name.lower())
+                key=lambda p: (-p.quarterly_sales, p.product_name.lower())
             )
 
         # Assign sort positions (1-based for Shopify)
@@ -174,7 +176,7 @@ class ProductFilter:
             logger.info(f"📋 Top 10 products by {self.sales_period} sales:")
             for i, product in enumerate(all_products[:10], 1):
                 sales_value = product.monthly_sales if self.sales_period == "MONTHLY" else product.quarterly_sales
-                logger.info(f"  {i}. {product.product_name} - {self.sales_period}: {sales_value}, Total: {product.total_sales}")
+                logger.info(f"  {i}. {product.product_name} - {self.sales_period}: {sales_value}")
 
         self.filtered_products = all_products
         return all_products
@@ -207,10 +209,9 @@ class ProductFilter:
         
         # Sort products by sales performance (top sellers first)
         # Primary sort: quarterly_sales (descending)
-        # Secondary sort: total_sales (descending) 
-        # Tertiary sort: product_name (ascending) for consistency
+        # Secondary sort: product_name (A to Z, ascending)
         filtered_products.sort(
-            key=lambda p: (-p.quarterly_sales, -p.total_sales, p.product_name.lower())
+            key=lambda p: (-p.quarterly_sales, p.product_name.lower())
         )
         
         # Assign sort positions (1-based for Shopify)
