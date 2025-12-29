@@ -70,27 +70,28 @@ def run_dynamic_collections() -> bool:
     try:
         print("\n🔄 Starting Dynamic Collections Script...")
         print("=" * 60)
-        
+
         # Get interval from environment variable
         dynamic_collections_interval_days = os.getenv("DYNAMIC_COLLECTIONS_INTERVAL_DAYS", "1")
-        
+
         # Ask user for execution mode
         print("Select execution mode:")
-        print("1. 🔧 Manual Sync (run once)")
+        print("1. 🔧 Manual Sync (run once for all collections)")
         print(f"2. 🔄 Scheduled Mode (run every {dynamic_collections_interval_days} days)")
         print("3. 🧪 Dry Run (analyze changes only)")
+        print("4. 🎯 Specific Collection (run once for a specific collection ID)")
         print("0. ↩️  Return to main menu")
-        
+
         while True:
             try:
                 mode_choice = input("\n🔸 Choose mode: ").strip()
-                
+
                 if mode_choice == "0":
                     return True  # Return to main menu
                 elif mode_choice == "1":
-                    # Manual sync
+                    # Manual sync - all collections
                     from scripts.job_dynamic_collections.main import run_dynamic_collections
-                    success = run_dynamic_collections(mode="manual", dry_run=False)
+                    success = run_dynamic_collections(mode="manual", dry_run=False, collection_id=None)
                     break
                 elif mode_choice == "2":
                     # Scheduled mode
@@ -98,31 +99,42 @@ def run_dynamic_collections() -> bool:
                     confirm = input("Continue? (y/N): ").strip().lower()
                     if confirm in ['y', 'yes']:
                         from scripts.job_dynamic_collections.main import run_dynamic_collections
-                        success = run_dynamic_collections(mode="scheduled", dry_run=False)
+                        success = run_dynamic_collections(mode="scheduled", dry_run=False, collection_id=None)
                     else:
                         success = True  # User cancelled
                     break
                 elif mode_choice == "3":
                     # Dry run
                     from scripts.job_dynamic_collections.main import run_dynamic_collections
-                    success = run_dynamic_collections(mode="manual", dry_run=True)
+                    success = run_dynamic_collections(mode="manual", dry_run=True, collection_id=None)
+                    break
+                elif mode_choice == "4":
+                    # Specific collection ID
+                    collection_id = input("\n🎯 Enter collection ID: ").strip()
+                    if not collection_id:
+                        print("❌ No collection ID provided.")
+                        continue
+
+                    print(f"\n🎯 Running for collection ID: {collection_id}")
+                    from scripts.job_dynamic_collections.main import run_dynamic_collections
+                    success = run_dynamic_collections(mode="manual", dry_run=False, collection_id=collection_id)
                     break
                 else:
-                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-4.")
                     continue
-                    
+
             except KeyboardInterrupt:
                 print("\n⏹️  Operation cancelled by user")
                 return True
-        
+
         print("\n" + "=" * 60)
         if success:
             print("✅ Dynamic Collections Script completed successfully!")
         else:
             print("❌ Dynamic Collections Script completed with errors.")
-        
+
         return success
-        
+
     except ImportError as e:
         print(f"❌ Error importing dynamic collections script: {e}")
         print("💡 Make sure you have installed the required dependencies: pip install APScheduler")

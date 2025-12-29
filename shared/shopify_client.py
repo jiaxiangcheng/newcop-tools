@@ -350,7 +350,6 @@ class ShopifyClient:
                 progress_pct = i / len(collect_ids_to_remove) * 100
                 
                 logger.info(f"🗑️  Removing batch {batch_num}/{total_batches}: {len(batch)} products ({progress_pct:.1f}%)")
-                print(f"🗑️  Removing batch {batch_num}/{total_batches}: {len(batch)} products ({progress_pct:.1f}%)")
                 
                 for collect_id in batch:
                     try:
@@ -539,16 +538,63 @@ class ShopifyClient:
             logger.error(f"Error fetching metafields for collection {collection_id}: {e}")
             raise
     
+    def get_single_collection(self, collection_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single collection by ID from collection_listings endpoint"""
+        url = f"{self.base_url}/collection_listings/{collection_id}.json"
+
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+
+            data = response.json()
+            collection = data.get("collection_listing")
+
+            if collection:
+                logger.debug(f"Found collection: {collection.get('title', 'Unknown')}")
+                return collection
+            else:
+                logger.warning(f"Collection {collection_id} not found")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching collection {collection_id}: {e}")
+            return None
+
+    def get_collection_with_job_settings(self, collection_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single collection with its job_settings metafield (optimized for single collection lookup)"""
+        try:
+            # Get collection info
+            collection = self.get_single_collection(collection_id)
+            if not collection:
+                logger.warning(f"Collection {collection_id} not found")
+                return None
+
+            # Get job settings
+            job_settings = self.get_collection_job_settings(collection_id)
+            if not job_settings:
+                logger.warning(f"Collection {collection_id} has no job_settings metafield")
+                return None
+
+            logger.info(f"✅ Found collection '{collection.get('title')}' with job_settings")
+            return {
+                "collection": collection,
+                "job_settings": job_settings
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting collection {collection_id} with job_settings: {e}")
+            return None
+
     def get_collection_job_settings(self, collection_id: str) -> Optional[Dict[str, Any]]:
         """Get job_settings from collection's custom.job_settings metafield"""
         try:
             metafields = self.get_collection_metafields(collection_id)
-            
+
             # Look for custom.job_settings metafield
             for metafield in metafields:
                 namespace = metafield.get("namespace")
                 key = metafield.get("key")
-                
+
                 if namespace == "custom" and key == "job_settings":
                     value = metafield.get("value")
                     if value:
