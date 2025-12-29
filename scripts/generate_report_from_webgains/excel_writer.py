@@ -492,11 +492,17 @@ class ExcelWriter:
             # Column 2: Issue Type
             cell = worksheet.cell(row=row_idx, column=2)
             cell.value = issue_type
-            # Color code by severity
-            if severity == "urgent":
+            # Color code by issue type
+            if "PEDIDO NO PREPARADO" in issue_type:
+                # Orange background for PEDIDO NO PREPARADO
+                cell.fill = PatternFill(start_color="FF9933", end_color="FF9933", fill_type="solid")  # Orange
+                cell.font = Font(color="FFFFFF", bold=True)  # White text
+            elif severity == "urgent":
+                # Red background for other urgent issues (PEDIDO CANCELADO with UNFULFILLED)
                 cell.fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")  # Red
                 cell.font = Font(color="FFFFFF", bold=True)  # White text
             else:
+                # Yellow background for warnings (PARTIALLY_REFUNDED, etc.)
                 cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")  # Yellow
                 cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center")
