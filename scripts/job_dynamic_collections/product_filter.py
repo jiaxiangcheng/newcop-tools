@@ -247,62 +247,70 @@ class ProductFilter:
 
         return True
     
-    def _has_required_brand_keyword(self, record: SalesRecord) -> bool:
+    def _has_required_brand_keyword(self, record: SalesRecord, brand_keywords: Optional[List[str]] = None) -> bool:
         """Check if product name or brand contains required brand keywords"""
+        keywords = brand_keywords if brand_keywords is not None else self.brand_keywords
+
         product_name = (record.product_name or "").lower()
         brand = (record.brand or "").lower()
 
-        for keyword in self.brand_keywords:
+        for keyword in keywords:
             if keyword.lower() in product_name or keyword.lower() in brand:
                 return True
 
         return False
 
-    def _has_excluded_brand_keyword(self, record: SalesRecord) -> bool:
+    def _has_excluded_brand_keyword(self, record: SalesRecord, excluded_brand_keywords: Optional[List[str]] = None) -> bool:
         """Check if product name or brand contains any excluded brand keywords"""
-        if not self.excluded_brand_keywords:
+        keywords = excluded_brand_keywords if excluded_brand_keywords is not None else self.excluded_brand_keywords
+
+        if not keywords:
             return False
 
         product_name = (record.product_name or "").lower()
         brand = (record.brand or "").lower()
 
-        for keyword in self.excluded_brand_keywords:
+        for keyword in keywords:
             if keyword.lower() in product_name or keyword.lower() in brand:
                 logger.debug(f"Product '{record.product_name}' excluded due to brand keyword '{keyword}'")
                 return True
 
         return False
 
-    def _has_excluded_tags(self, record: SalesRecord) -> bool:
+    def _has_excluded_tags(self, record: SalesRecord, excluded_tags: Optional[List[str]] = None) -> bool:
         """Check if product has any excluded tags"""
-        if not record.tags or not self.excluded_tags:
+        tags = excluded_tags if excluded_tags is not None else self.excluded_tags
+
+        if not record.tags or not tags:
             return False
-        
+
         tags_lower = [tag.lower().strip() for tag in record.tags]
-        
-        for excluded_tag in self.excluded_tags:
+
+        for excluded_tag in tags:
             if excluded_tag.lower() in tags_lower:
                 return True
-        
+
         return False
     
-    def _has_required_included_tags(self, record: SalesRecord) -> bool:
+    def _has_required_included_tags(self, record: SalesRecord, included_tags: Optional[List[str]] = None) -> bool:
         """Check if product has required included tags (if specified)"""
+        tags = included_tags if included_tags is not None else self.included_tags
+
         # If no included tags specified, no restriction
-        if not self.included_tags:
+        if not tags:
             return True
-        
+
         # If no tags on product but included tags required, exclude
         if not record.tags:
             return False
-        
+
         tags_lower = [tag.lower().strip() for tag in record.tags]
-        
+
         # Product must have at least one of the included tags
-        for included_tag in self.included_tags:
+        for included_tag in tags:
             if included_tag.lower() in tags_lower:
                 return True
-        
+
         return False
     
     def _get_sales_value(self, record: SalesRecord) -> float:
