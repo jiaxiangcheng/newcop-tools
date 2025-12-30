@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.job_dynamic_collections.models import TopResellProductsJobSettings, GetProductsWithTotalStockJobSettings, SalesRecord, CollectionWithJobSettings
+from scripts.job_dynamic_collections.models import TopResellProductsJobSettings, GetProductsWithTotalStockJobSettings, SalesRecord, CollectionWithJobSettings, FilteredProduct
 from shared.airtable_client import AirtableClient
 from shared.shopify_client import ShopifyClient
 from scripts.job_dynamic_collections.product_filter import ProductFilter
@@ -190,13 +190,13 @@ class GetProductsWithTotalStockJobExecutor(JobExecutor):
             # Initialize Airtable client with collection-specific settings
             airtable_client = AirtableClient(
                 token=self.airtable_token,
-                base_id=settings.AIRTABLE_BASE_ID,
-                table_id=settings.AIRTABLE_TABLE_ID
+                base_id=settings.AIRTABLE_BASE_ID
             )
 
             # Fetch records from Airtable
             logger.info(f"📥 Fetching records from Airtable (max: {settings.MAX_AIRTABLE_RECORDS})...")
             raw_records = airtable_client.get_records(
+                table_id=settings.AIRTABLE_TABLE_ID,
                 view_id=settings.AIRTABLE_VIEW_ID,
                 max_records=settings.MAX_AIRTABLE_RECORDS
             )
@@ -243,20 +243,33 @@ class GetProductsWithTotalStockJobExecutor(JobExecutor):
                 if len(skipped_products) > 10:
                     logger.warning(f"  ... and {len(skipped_products) - 10} more")
 
-            # Extract product IDs for collection update
-            product_ids = [record.shopify_id for record in filtered_records]
+            # Convert SalesRecord to FilteredProduct for collection update
+            filtered_products = []
+            for record in filtered_records:
+                filtered_product = FilteredProduct(
+                    record_id=record.record_id,
+                    product_name=record.product_name or "",
+                    brand=record.brand or "",
+                    quarterly_sales=record.quarterly_sales,
+                    monthly_sales=record.monthly_sales,
+                    total_sales=record.total_sales,
+                    tags=record.tags or [],
+                    shopify_id=record.shopify_id,
+                    sales_period="QUARTERLY"  # Default for total stock job
+                )
+                filtered_products.append(filtered_product)
 
             # Update Shopify collection
             if self.dry_run:
                 logger.info(f"\n🧪 DRY RUN MODE - No changes will be made to collection")
-                logger.info(f"Would add {len(product_ids)} products to collection '{collection}'")
+                logger.info(f"Would add {len(filtered_products)} products to collection '{collection}'")
             else:
                 logger.info(f"\n🔄 Updating Shopify collection '{collection}'...")
                 self.shopify_client.update_collection_with_filtered_products(
                     collection_id=collection_id,
-                    product_ids=product_ids
+                    filtered_products=filtered_products
                 )
-                logger.info(f"✅ Collection updated successfully with {len(product_ids)} products")
+                logger.info(f"✅ Collection updated successfully with {len(filtered_products)} products")
 
             return {
                 'success': True,
