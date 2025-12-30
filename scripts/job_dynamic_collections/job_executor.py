@@ -86,10 +86,8 @@ class TopResellProductsJobExecutor(JobExecutor):
             
             # Filter products based on criteria with newcop exception logic
             logger.info(f"🔍 Filtering {len(sales_records)} products based on brand, tags, and sales criteria...")
-            print(f"🔍 Filtering {len(sales_records)} products based on brand, tags, and sales criteria...")
             filtered_products = product_filter.filter_products_with_newcop_exception(sales_records)
             logger.info(f"✅ Filtering completed: {len(filtered_products)}/{len(sales_records)} products passed criteria")
-            print(f"✅ Filtering completed: {len(filtered_products)}/{len(sales_records)} products passed criteria")
             
             if not filtered_products:
                 logger.warning("No products passed filtering criteria")
@@ -110,8 +108,6 @@ class TopResellProductsJobExecutor(JobExecutor):
             else:
                 logger.info(f"🚀 Starting Shopify collection update for {collection_id}...")
                 logger.info(f"📊 Will update collection with {len(filtered_products)} products")
-                print(f"🚀 Starting Shopify collection update for {collection_id}...")
-                print(f"📊 Will update collection with {len(filtered_products)} products")
                 update_result = self.shopify_client.update_collection_with_filtered_products(
                     collection_id,
                     filtered_products

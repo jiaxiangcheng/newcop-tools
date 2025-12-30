@@ -9,7 +9,7 @@
 1. **获取顶级产品**: 从指定的 Airtable view 获取前 N 个产品（默认 50 个）
 2. **清除现有 badges**: 移除所有当前标记为 best seller 的产品 badge
 3. **分配新 badges**: 为从 Airtable 获取的顶级产品添加 best seller badge
-4. **定时执行**: 支持每月 1 号自动运行
+4. **定时执行**: 支持每周日 00:00 自动运行
 
 ## 核心特性
 
@@ -18,7 +18,7 @@
 - ✅ **智能差异检测**: 只更新需要改变的产品
 - ✅ **干运行模式**: 支持预览模式，不实际更新数据
 - ✅ **全面日志**: 详细的执行日志和错误处理
-- ✅ **灵活调度**: 支持手动执行和定时执行（每月 1 号）
+- ✅ **灵活调度**: 支持手动执行和定时执行（每周日 00:00）
 
 ## 配置要求
 
@@ -75,7 +75,7 @@ python main.py
 # 手动运行一次
 python scripts/job_assign_best_seller_badge/main.py --mode manual
 
-# 定时模式（每月 1 号 00:00 运行）
+# 定时模式（每周日 00:00 运行）
 python scripts/job_assign_best_seller_badge/main.py --mode scheduled
 
 # 干运行（预览更改）
@@ -159,7 +159,7 @@ Execution time: 15.32s
 
 脚本支持以下定时模式：
 
-- **每月 1 号 00:00**: 自动运行 badge 更新
+- **每周日 00:00**: 自动运行 badge 更新
 
 ### 设置 Cron 任务
 
@@ -169,8 +169,8 @@ Execution time: 15.32s
 # 编辑 crontab
 crontab -e
 
-# 添加以下行（每月 1 号 00:00 运行）
-0 0 1 * * cd /path/to/newcop-backend-jobs && source venv/bin/activate && python scripts/job_assign_best_seller_badge/main.py --mode manual >> logs/best_seller_badge_cron.log 2>&1
+# 添加以下行（每周日 00:00 运行）
+0 0 * * 0 cd /path/to/newcop-backend-jobs && source venv/bin/activate && python scripts/job_assign_best_seller_badge/main.py --mode manual >> logs/best_seller_badge_cron.log 2>&1
 ```
 
 或者使用脚本的 scheduled 模式（作为长期运行的进程）：

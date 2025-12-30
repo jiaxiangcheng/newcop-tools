@@ -3,7 +3,7 @@
 Best Seller Badge Assignment Job
 
 Automatically assigns best seller badges to top products based on Airtable sales data.
-Runs monthly on the first day of each month.
+Runs weekly on Sundays at 00:00.
 
 Features:
 - Fetches top 50 products from Airtable view sorted by sales
@@ -222,14 +222,14 @@ class BestSellerBadgeOrchestrator:
 
     def run_scheduled(self) -> bool:
         """
-        Run in scheduled mode (monthly on the 1st at 00:00)
+        Run in scheduled mode (weekly on Sundays at 00:00)
 
         Returns:
             True if scheduler started successfully, False otherwise
         """
         try:
             logger.info("🔄 Starting Best Seller Badge scheduler...")
-            logger.info("📅 Schedule: Monthly on the 1st at 00:00")
+            logger.info("📅 Schedule: Weekly on Sundays at 00:00")
 
             # Create scheduler
             executors = {
@@ -238,12 +238,12 @@ class BestSellerBadgeOrchestrator:
 
             self.scheduler = BlockingScheduler(executors=executors)
 
-            # Add monthly job (runs on the 1st of each month at 00:00)
+            # Add weekly job (runs every Sunday at 00:00)
             self.scheduler.add_job(
                 func=self.run_sync,
-                trigger=CronTrigger(day=1, hour=0, minute=0),
-                id='best_seller_badge_monthly',
-                name='Best Seller Badge Monthly Sync',
+                trigger=CronTrigger(day_of_week='sun', hour=0, minute=0),
+                id='best_seller_badge_weekly',
+                name='Best Seller Badge Weekly Sync',
                 replace_existing=True
             )
 
@@ -261,7 +261,7 @@ class BestSellerBadgeOrchestrator:
             atexit.register(lambda: self.scheduler.shutdown(wait=False) if self.scheduler else None)
 
             logger.info("✅ Scheduler configured successfully")
-            logger.info("⏰ Next run scheduled for: 1st of next month at 00:00")
+            logger.info("⏰ Next run scheduled for: Next Sunday at 00:00")
             logger.info("🔄 Scheduler starting... (Press Ctrl+C to stop)")
 
             # Start scheduler
@@ -324,7 +324,7 @@ Examples:
   # Run once manually
   python main.py --mode manual
 
-  # Run in scheduled mode (monthly)
+  # Run in scheduled mode (weekly on Sundays)
   python main.py --mode scheduled
 
   # Dry run (preview changes)

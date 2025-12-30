@@ -420,7 +420,6 @@ class ShopifyClient:
         removed_count = 0
         if current_product_ids:
             logger.info(f"Removing ALL {len(current_product_ids)} products from collection...")
-            print(f"🗑️  Removing ALL {len(current_product_ids)} products from collection...")
             try:
                 remove_success = self.remove_all_products_from_collection(collection_id, current_product_ids)
                 if remove_success:
@@ -673,7 +672,6 @@ class ShopifyClient:
                         if (i + 1) % 10 == 0:
                             progress_pct = (i + 1) / len(product_ids) * 100
                             logger.info(f"➕ Added {i + 1}/{len(product_ids)} products ({progress_pct:.1f}%)")
-                            print(f"➕ Added {i + 1}/{len(product_ids)} products ({progress_pct:.1f}%)")
                     else:
                         failed_products.append(product_id)
                         logger.warning(f"❌ Failed to add product {product_id} to collection")

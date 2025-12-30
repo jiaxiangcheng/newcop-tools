@@ -605,7 +605,7 @@ def run_best_seller_badge() -> bool:
         # Ask user for execution mode
         print("Select execution mode:")
         print("1. 🔧 Manual Sync (run once)")
-        print("2. 🔄 Scheduled Mode (run monthly on 1st at 00:00)")
+        print("2. 🔄 Scheduled Mode (run weekly on Sundays at 00:00)")
         print("3. 🧪 Dry Run (analyze changes only)")
         print("0. ↩️  Return to main menu")
 
@@ -622,7 +622,7 @@ def run_best_seller_badge() -> bool:
                     break
                 elif mode_choice == "2":
                     # Scheduled mode
-                    print("\n⚠️  Scheduled mode will run monthly on the 1st at 00:00. Press Ctrl+C to stop.")
+                    print("\n⚠️  Scheduled mode will run weekly on Sundays at 00:00. Press Ctrl+C to stop.")
                     confirm = input("Continue? (y/N): ").strip().lower()
                     if confirm in ['y', 'yes']:
                         from scripts.job_assign_best_seller_badge.main import run_best_seller_badge
