@@ -38,15 +38,16 @@ class ProductFilter:
     
     def filter_products_with_newcop_exception(self, sales_records: List[SalesRecord]) -> List[FilteredProduct]:
         """
-        Filter products with correct inclusion/exclusion logic:
+        Filter products with correct inclusion/exclusion logic (Updated to match getProductsWithAtLeastTotalStock):
 
-        Step 1 - Include products that meet ANY of these conditions:
-          a) Has INCLUDED_TAGS (if specified) - no sales threshold
-          b) Has BRAND_KEYWORDS (if specified) AND meets sales threshold
+        Step 1 - EXCLUSION (priority):
+          a) EXCLUDED_TAGS - products with ANY excluded tag are removed
+          b) EXCLUDED_BRAND_KEYWORDS - products with ANY excluded brand keyword are removed
 
-        Step 2 - Exclude products from Step 1 that have:
-          a) EXCLUDED_TAGS
-          b) EXCLUDED_BRAND_KEYWORDS
+        Step 2 - INCLUSION (ALL must pass):
+          a) Has AT LEAST ONE tag from INCLUDED_TAGS (if specified) - OR logic
+          b) Has AT LEAST ONE brand keyword from BRAND_KEYWORDS (if specified and not empty) - OR logic
+          c) Meets sales threshold (>= MIN_QUARTERLY_SALES)
 
         Step 3 - Sort by sales performance
         """
@@ -64,10 +65,11 @@ class ProductFilter:
         logger.info(f"=" * 80)
 
         # Counters for debugging
-        included_by_tags = 0
-        included_by_brand = 0
+        passed_all_filters = 0
         excluded_by_tags = 0
         excluded_by_brand = 0
+        excluded_by_missing_tags = 0
+        excluded_by_missing_brand = 0
         excluded_by_sales = 0
 
         for idx, record in enumerate(sales_records, 1):
@@ -80,43 +82,7 @@ class ProductFilter:
             logger.info(f"   🏢 Brand: {record.brand}")
             logger.info(f"   🆔 Shopify ID: {record.shopify_id}")
 
-            # Step 1: Check if product should be INCLUDED
-            # Include if: (has included_tags) OR (has brand_keywords AND meets sales threshold)
-
-            has_included_tags = self._has_required_included_tags(record) if self.included_tags else False
-            has_brand_keyword = self._has_required_brand_keyword(record) if self.brand_keywords else False
-            meets_sales = self._meets_sales_threshold(record)
-
-            logger.info(f"   ✓ Has included tags: {has_included_tags}")
-            logger.info(f"   ✓ Has brand keyword: {has_brand_keyword}")
-            logger.info(f"   ✓ Meets sales threshold (>={self.min_quarterly_sales}): {meets_sales}")
-
-            # Inclusion logic: included_tags (no sales requirement) OR (brand_keywords AND sales threshold)
-            should_include = False
-            inclusion_reason = ""
-
-            if has_included_tags:
-                should_include = True
-                inclusion_reason = "included_tags"
-                included_by_tags += 1
-                logger.info(f"   ✅ INCLUDED by included_tags (no sales requirement)")
-            elif has_brand_keyword and meets_sales:
-                should_include = True
-                inclusion_reason = "brand_keywords_and_sales"
-                included_by_brand += 1
-                logger.info(f"   ✅ INCLUDED by brand_keywords AND sales threshold")
-            elif has_brand_keyword and not meets_sales:
-                excluded_by_sales += 1
-                logger.info(f"   ❌ EXCLUDED: Has brand keyword but sales ({sales_value}) < threshold ({self.min_quarterly_sales})")
-            elif not has_brand_keyword:
-                logger.info(f"   ❌ EXCLUDED: No brand keyword match")
-            else:
-                logger.info(f"   ❌ EXCLUDED: Does not meet inclusion criteria")
-
-            if not should_include:
-                continue
-
-            # Step 2: Check if product should be EXCLUDED
+            # EXCLUSION CHECKS (priority)
             has_excluded_tags = self._has_excluded_tags(record)
             has_excluded_brand = self._has_excluded_brand_keyword(record)
 
@@ -128,6 +94,32 @@ class ProductFilter:
             if has_excluded_brand:
                 excluded_by_brand += 1
                 logger.info(f"   ❌ EXCLUDED by excluded_brand_keyword: {self._get_matching_excluded_brand(record)}")
+                continue
+
+            # INCLUSION CHECKS (ALL must pass)
+            # Check 1: Required tags (at least ONE must be present) - OR logic
+            has_required_tags = True
+            if self.included_tags:
+                has_required_tags = self._has_required_included_tags(record, self.included_tags)
+                if not has_required_tags:
+                    excluded_by_missing_tags += 1
+                    logger.info(f"   ❌ EXCLUDED: Missing required tags (needs at least ONE of {self.included_tags})")
+                    continue
+
+            # Check 2: Brand keywords (at least one must match, or empty/None means no filtering) - OR logic
+            has_brand_keyword = True
+            if self.brand_keywords and len(self.brand_keywords) > 0:
+                has_brand_keyword = self._has_required_brand_keyword(record, self.brand_keywords)
+                if not has_brand_keyword:
+                    excluded_by_missing_brand += 1
+                    logger.info(f"   ❌ EXCLUDED: Missing required brand keyword (needs at least ONE of {self.brand_keywords})")
+                    continue
+
+            # Check 3: Sales threshold
+            meets_sales = self._meets_sales_threshold(record)
+            if not meets_sales:
+                excluded_by_sales += 1
+                logger.info(f"   ❌ EXCLUDED: Sales ({sales_value}) < threshold ({self.min_quarterly_sales})")
                 continue
 
             # Product passed all filters, add it
@@ -144,13 +136,19 @@ class ProductFilter:
                     sales_period=self.sales_period
                 )
                 all_products.append(filtered_product)
+                passed_all_filters += 1
                 logger.info(f"   ✅ PASSED all filters - Added to collection")
             except Exception as e:
                 logger.warning(f"   ❌ Error creating filtered product: {e}")
 
-        logger.info(f"✅ Filtering completed: {len(all_products)} products passed all filters")
-        logger.info(f"📊 Inclusion: {included_by_tags} by tags, {included_by_brand} by brand+sales")
-        logger.info(f"📊 Exclusion: {excluded_by_tags} by excluded tags, {excluded_by_brand} by excluded brand keywords, {excluded_by_sales} by low sales")
+        logger.info(f"\n✅ Filtering completed: {len(all_products)} products passed all filters")
+        logger.info(f"📊 Passed: {passed_all_filters} products")
+        logger.info(f"📊 Exclusion breakdown:")
+        logger.info(f"    - {excluded_by_tags} by excluded tags")
+        logger.info(f"    - {excluded_by_brand} by excluded brand keywords")
+        logger.info(f"    - {excluded_by_missing_tags} by missing required tags")
+        logger.info(f"    - {excluded_by_missing_brand} by missing brand keywords")
+        logger.info(f"    - {excluded_by_sales} by low sales")
         logger.info(f"After deduplication: {len(all_products)} unique products")
 
         # Step 4: Sort by sales performance (using the configured sales period)
@@ -345,6 +343,80 @@ class ProductFilter:
                 return keyword
 
         return None
+
+    def filter_products_by_total_stock(
+        self,
+        records: List[SalesRecord],
+        min_total_quantity: float = 4.0,
+        excluded_tags: Optional[List[str]] = None,
+        included_tags: Optional[List[str]] = None,
+        brand_keywords: Optional[List[str]] = None,
+        excluded_brand_keywords: Optional[List[str]] = None
+    ) -> tuple[List[SalesRecord], List[str]]:
+        """
+        Filter products based on total stock quantity with tag and brand filtering.
+
+        Logic:
+        1. INCLUSION: Products must meet ALL of:
+           - total_stock >= min_total_quantity
+           - Has AT LEAST ONE required tag (if included_tags specified) - OR logic
+           - Has at least one brand keyword (if brand_keywords specified and not empty)
+
+        2. EXCLUSION: Products are excluded if they have:
+           - ANY excluded tag
+           - ANY excluded brand keyword
+
+        3. SORTING: Maintains original Airtable view order (no sorting applied)
+
+        Args:
+            records: List of sales records from Airtable (preserves order)
+            min_total_quantity: Minimum total stock quantity required
+            excluded_tags: List of tags to exclude (any match excludes product)
+            included_tags: List of tags (at least ONE must be present) - OR logic
+            brand_keywords: List of brand keywords (at least one must match, or empty/None for no filtering)
+            excluded_brand_keywords: List of excluded brand keywords (any match excludes)
+
+        Returns:
+            Tuple of (filtered_records, skipped_product_names)
+        """
+        filtered_records = []
+        skipped_products = []
+
+        for record in records:
+            # Skip products without Shopify ID
+            if not record.shopify_id or record.shopify_id <= 0:
+                skipped_products.append(record.product_name or "Unknown Product")
+                continue
+
+            # EXCLUSION CHECKS (priority)
+            if excluded_brand_keywords and self._has_excluded_brand_keyword(record, excluded_brand_keywords):
+                continue
+
+            if excluded_tags and self._has_excluded_tags(record, excluded_tags):
+                continue
+
+            # INCLUSION CHECKS
+            # Check 1: Total stock threshold
+            has_sufficient_stock = (record.total_stock or 0.0) >= min_total_quantity
+
+            # Check 2: Required tags (at least ONE must be present) - OR logic
+            has_required_tags = True
+            if included_tags:
+                has_required_tags = self._has_required_included_tags(record, included_tags)
+
+            # Check 3: Brand keywords (at least one must match, or empty/None means no filtering)
+            has_brand_keyword = True
+            if brand_keywords and len(brand_keywords) > 0:  # Only filter if list is not empty
+                has_brand_keyword = self._has_required_brand_keyword(record, brand_keywords)
+
+            # Product passes if all inclusion checks pass
+            if has_sufficient_stock and has_required_tags and has_brand_keyword:
+                filtered_records.append(record)
+
+        # DO NOT SORT - preserve Airtable view order
+        # filtered_records maintains the original order from the records list
+
+        return filtered_records, skipped_products
 
     def get_filtering_summary(self) -> Dict[str, Any]:
         """Get summary of filtering criteria and results"""

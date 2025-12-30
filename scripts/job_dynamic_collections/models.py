@@ -24,7 +24,10 @@ class SalesRecord(BaseModel):
     quarterly_sales: Optional[float] = 0.0
     monthly_sales: Optional[float] = 0.0
     total_sales: Optional[float] = 0.0
-    
+
+    # Stock data
+    total_stock: Optional[float] = 0.0
+
     # Additional fields that might be present
     category: Optional[str] = None
     country: Optional[str] = None
@@ -65,6 +68,7 @@ class SalesRecord(BaseModel):
             quarterly_sales=float(fields.get("Ventas trimestre", 0) or fields.get("quarterly_sales", 0) or fields.get("trimestre_sales", 0) or 0),
             monthly_sales=float(fields.get("Monthly total", 0) or fields.get("monthly_sales", 0) or fields.get("ventas_mensuales", 0) or 0),
             total_sales=float(fields.get("Total sale", 0) or fields.get("total_sales", 0) or fields.get("ventas_totales", 0) or 0),
+            total_stock=float(fields.get("Total Stock", 0) or fields.get("total_stock", 0) or fields.get("Stock Total", 0) or fields.get("stock", 0) or 0),
             category=fields.get("category") or fields.get("categoria"),
             country=fields.get("country") or fields.get("pais"),
             date_range=fields.get("date_range") or fields.get("rango_fecha")
@@ -120,6 +124,7 @@ class CollectionUpdateRequest(BaseModel):
 class JobType(str, Enum):
     """Supported job types"""
     GET_TOP_RESELL_PRODUCTS = "getTopResellProducts"
+    GET_PRODUCTS_WITH_TOTAL_STOCK = "getProductsWithAtLeastTotalStock"
     # Future job types can be added here
     # SEASONAL_PRODUCTS = "seasonalProducts"
     # TRENDING_PRODUCTS = "trendingProducts"
@@ -172,6 +177,30 @@ class TopResellProductsJobSettings(BaseJobSettings):
             return SalesPeriod(v.upper())
         return v
 
+class GetProductsWithTotalStockJobSettings(BaseJobSettings):
+    """Job settings for getProductsWithAtLeastTotalStock job type"""
+    AIRTABLE_BASE_ID: str
+    AIRTABLE_TABLE_ID: str
+    AIRTABLE_VIEW_ID: str
+    MIN_TOTAL_QUANTITY: float = 4.0
+    EXCLUDED_TAGS: Optional[List[str]] = None
+    INCLUDED_TAGS: Optional[List[str]] = None
+    BRAND_KEYWORDS: Optional[List[str]] = None
+    EXCLUDED_BRAND_KEYWORDS: Optional[List[str]] = None
+
+    @validator('jobType')
+    def validate_job_type(cls, v):
+        if v != JobType.GET_PRODUCTS_WITH_TOTAL_STOCK:
+            raise ValueError(f"Invalid job type for GetProductsWithTotalStockJobSettings: {v}")
+        return v
+
+    @validator('MIN_TOTAL_QUANTITY', pre=True)
+    def parse_min_total_quantity(cls, v):
+        """Convert string to float if needed"""
+        if isinstance(v, str):
+            return float(v)
+        return v
+
 class CollectionWithJobSettings(BaseModel):
     """Model representing a collection with its job settings"""
     collection_id: str
@@ -183,9 +212,11 @@ class CollectionWithJobSettings(BaseModel):
     def create_job_settings_from_dict(job_data: Dict[str, Any]) -> BaseJobSettings:
         """Factory method to create appropriate job settings based on jobType"""
         job_type = job_data.get("jobType")
-        
+
         if job_type == JobType.GET_TOP_RESELL_PRODUCTS:
             return TopResellProductsJobSettings(**job_data)
+        elif job_type == JobType.GET_PRODUCTS_WITH_TOTAL_STOCK:
+            return GetProductsWithTotalStockJobSettings(**job_data)
         else:
             raise ValueError(f"Unknown job type: {job_type}")
     
