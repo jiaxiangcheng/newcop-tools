@@ -54,7 +54,7 @@ class ExcelWriter:
         ("Fulfillment Status", "fulfillment_status"),
         ("Is Cancelled", "is_cancelled"),
         ("Order Status Notes", "order_status_notes"),
-        ("Refund Amount", "refund_amount"),  # New column for partial refund amount
+        ("Refund Amount / Total Amount", "refund_amount"),  # New column for partial refund amount
         ("Return Status", "return_status"),  # New column for return in process
         ("Issue Type", "issue_type"),  # New column for issue type
         ("Customer Email", "customer_email"),
@@ -470,7 +470,7 @@ class ExcelWriter:
             return row_idx
 
         # Header row
-        headers = ["Order Reference", "Issue Type", "Financial Status", "Fulfillment Status", "Refund Amount", "Return Status"]
+        headers = ["Order Reference", "Issue Type", "Financial Status", "Fulfillment Status", "Refund Amount / Total Amount", "Return Status"]
         for col_idx, header in enumerate(headers, start=1):
             cell = worksheet.cell(row=row_idx, column=col_idx)
             cell.value = header

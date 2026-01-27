@@ -118,14 +118,26 @@ class EnrichedRecord(BaseModel):
     override: Optional[float] = None
     date_time: Optional[str] = None
     order_reference: Optional[str] = None
-    country: Optional[str] = None
+    webgains_country: Optional[str] = Field(None, alias="country")  # Original Webgains country
     commission_type: Optional[str] = None
     percentage: Optional[str] = None
 
     # Enriched Shopify data
     shopify_order_data: Optional[ShopifyOrderData] = None
 
+    class Config:
+        populate_by_name = True
+
     # Computed fields for Excel export
+    @property
+    def country(self) -> str:
+        """Country - prioritize Shopify shipping address, fallback to Webgains country"""
+        # First try Shopify shipping address
+        if self.shopify_order_data and self.shopify_order_data.customer and self.shopify_order_data.customer.shipping_country:
+            return self.shopify_order_data.customer.shipping_country
+        # Fallback to Webgains country
+        return self.webgains_country or ""
+
     @property
     def customer_email(self) -> str:
         return self.shopify_order_data.customer.email if self.shopify_order_data and self.shopify_order_data.customer else ""
@@ -284,7 +296,7 @@ class EnrichedRecord(BaseModel):
 
     @property
     def refund_amount(self) -> str:
-        """Refund amount in EUR for partially refunded orders"""
+        """Refund amount in EUR for partially refunded orders, displayed as '[退款金额] / [订单总金额]'"""
         if not self.shopify_order_data or self.shopify_order_data.refund_amount is None:
             return ""
 
@@ -292,9 +304,14 @@ class EnrichedRecord(BaseModel):
         financial_status = self.shopify_order_data.financial_status or ""
         if "PARTIALLY" in financial_status.upper():
             # Format as EUR with 2 decimal places
-            amount = self.shopify_order_data.refund_amount
+            refund = self.shopify_order_data.refund_amount
             currency = self.shopify_order_data.refund_currency or "EUR"
-            return f"{amount:.2f} {currency}"
+
+            # Get order total from sale field
+            order_total = self.sale if self.sale else 0.0
+
+            # Format as "[退款金额] / [订单总金额]"
+            return f"{refund:.2f} {currency} / {order_total:.2f} {currency}"
 
         return ""
 

@@ -1503,6 +1503,9 @@ class ShopifyClient:
                 }
               }
             }
+            shippingAddress {
+              countryCode
+            }
             customer {
               id
               email
@@ -1549,10 +1552,20 @@ class ShopifyClient:
                 logger.warning(f"Order not found: {order_reference}")
                 return None
 
-            # Process customer data - extract shipping country from defaultAddress
-            if order_data.get("customer") and order_data["customer"].get("defaultAddress"):
-                country_code = order_data["customer"]["defaultAddress"].get("countryCode")
-                order_data["customer"]["shipping_country"] = country_code
+            # Process shipping country - prioritize order's shippingAddress over customer's defaultAddress
+            shipping_country = None
+
+            # First try to get from order's shippingAddress (this is the actual shipping destination for this order)
+            if order_data.get("shippingAddress"):
+                shipping_country = order_data["shippingAddress"].get("countryCode")
+
+            # Fallback to customer's defaultAddress if order has no shippingAddress
+            if not shipping_country and order_data.get("customer") and order_data["customer"].get("defaultAddress"):
+                shipping_country = order_data["customer"]["defaultAddress"].get("countryCode")
+
+            # Set shipping_country on customer object for compatibility with existing code
+            if order_data.get("customer"):
+                order_data["customer"]["shipping_country"] = shipping_country
 
             return order_data
 
