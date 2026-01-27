@@ -62,6 +62,7 @@ def show_menu():
     print("7. 🏅 Best Seller Badge - Assign best seller badges to top products (runs monthly on 1st)")
     print("8. 💰 Product Discounts - Calculate and sync product discount percentages (runs daily at 00:00)")
     print("9. 📝 Set Variants Metafield - Sync product variant names to custom.variants metafield")
+    print("10. 🏷️  Set Product Type - Set product types based on collection and tags")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -806,6 +807,103 @@ def run_set_variants_metafield() -> bool:
         print(f"❌ Unexpected error running set variants metafield: {e}")
         return False
 
+def run_set_product_type() -> bool:
+    """Run the set product type script with user mode selection"""
+    try:
+        print("\n🏷️  Starting Set Product Type Script...")
+        print("=" * 60)
+
+        # Ask user for execution mode
+        print("Select execution mode:")
+        print("1. 🔧 Process All 3 Configured Collections (639759778133, 639750963541, 639759647061)")
+        print("2. 🎯 Process Specific Collection (enter collection ID)")
+        print("3. 🧪 Dry Run All 3 Collections (analyze changes only)")
+        print("4. 🧪 Dry Run Specific Collection (analyze changes only)")
+        print("5. 📋 List Products with Empty Type (find all ACTIVE products with empty product type)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True  # Return to main menu
+                elif mode_choice == "1":
+                    # Process all collections
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set_product_type/main.py"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice == "2":
+                    # Process specific collection
+                    collection_id = input("\n🎯 Enter collection ID: ").strip()
+                    if not collection_id:
+                        print("❌ No collection ID provided.")
+                        continue
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set_product_type/main.py", "--collection", collection_id],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice == "3":
+                    # Dry run all collections
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set_product_type/main.py", "--dry-run"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice == "4":
+                    # Dry run specific collection
+                    collection_id = input("\n🎯 Enter collection ID: ").strip()
+                    if not collection_id:
+                        print("❌ No collection ID provided.")
+                        continue
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set_product_type/main.py", "--collection", collection_id, "--dry-run"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice == "5":
+                    # List products with empty type
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set_product_type/main.py", "--list-empty"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-5.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Set Product Type Script completed successfully!")
+        else:
+            print("❌ Set Product Type Script completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing set product type script: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running set product type: {e}")
+        return False
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -844,6 +942,7 @@ def main():
         "7": run_best_seller_badge,
         "8": run_product_discounts,
         "9": run_set_variants_metafield,
+        "10": run_set_product_type,
     }
     
     # Check if we're in a virtual environment
