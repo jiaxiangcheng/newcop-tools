@@ -102,20 +102,20 @@ def main():
             shopify_client = ShopifyClient(shopify_token, shopify_domain)
             manager = ProductTypeManager(shopify_client)
 
-            # Get products with empty type
-            products = manager.get_products_with_empty_type()
+            # Get products with empty type (with auto-classification enabled)
+            products, stats = manager.get_products_with_empty_type(auto_classify=True)
 
             if products:
-                logger.info("\n📋 ACTIVE Products with empty product type:")
+                logger.info("\n📋 ACTIVE Products with empty type (no auto-classification match):")
                 logger.info("-" * 60)
                 for i, product in enumerate(products, 1):
                     logger.info(
                         f"{i}. ID: {product['id']} | "
                         f"Title: {product['title']} | "
-                        f"Handle: {product['handle']}"
+                        f"Vendor: {product.get('vendor', 'N/A')}"
                     )
                 logger.info("-" * 60)
-                logger.info(f"\n✅ Total: {len(products)} ACTIVE products with empty type")
+                logger.info(f"\n✅ Total: {len(products)} products to export (after auto-classification)")
                 
                 # Export to Excel
                 logger.info("\n📊 Exporting to Excel...")
@@ -123,7 +123,9 @@ def main():
                 if excel_path:
                     logger.info(f"✅ Excel file exported to: {excel_path}")
             else:
-                logger.info("\n✅ No ACTIVE products found with empty product type")
+                logger.info("\n✅ No products to export (all were auto-classified or no products found)")
+                if stats.get("auto_classified", 0) > 0:
+                    logger.info(f"   ({stats['auto_classified']} products were auto-classified and updated)")
 
             return 0
 

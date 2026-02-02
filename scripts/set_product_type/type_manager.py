@@ -479,14 +479,73 @@ class ProductTypeManager:
             "dry_run": dry_run
         }
 
-    def get_products_with_empty_type(self) -> List[Dict[str, Any]]:
+    def _determine_auto_type(self, title: str, vendor: Optional[str] = None) -> Optional[str]:
         """
-        Get all ACTIVE products with empty or null product type.
+        Determine product type based on title and vendor keywords (case-insensitive).
+
+        Args:
+            title: Product title
+            vendor: Product vendor/brand (optional)
 
         Returns:
-            List of active products with empty type, each containing id, title, handle, and productType
+            Product type string or None if no match
+        """
+        # Combine title and vendor for checking (both lowercase for case-insensitive matching)
+        search_text = title.lower() if title else ""
+        if vendor:
+            search_text += " " + vendor.lower()
+
+        # Check keywords in order of priority
+        # Accessories keywords
+        if "sonny angels" in search_text:
+            return "Accessories"
+
+        # Clothing keywords
+        if "supreme" in search_text:
+            return "Clothing"
+        if "stussy" in search_text:
+            return "Clothing"
+        if "apf" in search_text:
+            return "Clothing"
+        if "new era" in search_text:
+            return "Clothing"
+        if "denim tears" in search_text:
+            return "Clothing"
+        if "palace" in search_text:
+            return "Clothing"
+        if "fakegods" in search_text:
+            return "Clothing"
+        if "yuxus" in search_text:
+            return "Clothing"
+        if "fear of god" in search_text:
+            return "Clothing"
+        if "newcop" in search_text:
+            return "Clothing"
+
+        # Sneakers keywords
+        if "adidas" in search_text:
+            return "Resell Sneakers"
+        if "nike" in search_text or "jordan" in search_text:
+            return "Resell Sneakers"
+
+        return None
+
+    def get_products_with_empty_type(self, auto_classify: bool = True) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Get all ACTIVE products with empty or null product type.
+        Optionally auto-classify products based on keywords and update their types.
+
+        Args:
+            auto_classify: If True, automatically classify and update products based on keywords
+
+        Returns:
+            Tuple of (products_to_export, classification_stats)
+            - products_to_export: List of products that don't match auto-classification rules
+            - classification_stats: Dictionary with classification statistics
         """
         logger.info("🔍 Fetching all ACTIVE products with empty product type...")
+        if auto_classify:
+            logger.info("🤖 Auto-classification enabled: Products matching keywords will be automatically updated")
         logger.info("="*60)
 
         query = """
@@ -505,6 +564,7 @@ class ProductTypeManager:
                 handle
                 productType
                 status
+                vendor
               }
             }
           }
@@ -512,9 +572,21 @@ class ProductTypeManager:
         """
 
         products_with_empty_type = []
+        products_to_export = []
         cursor = None
         has_next_page = True
         total_checked = 0
+        
+        # Classification statistics
+        classification_stats = {
+            "total_found": 0,
+            "auto_classified": 0,
+            "clothing": 0,
+            "resell_sneakers": 0,
+            "accessories": 0,
+            "to_export": 0,
+            "update_failed": 0
+        }
         
         # Query only ACTIVE products
         query_string = "status:active"
@@ -553,14 +625,61 @@ class ProductTypeManager:
                 
                 # Check if product type is empty, null, or whitespace
                 if not product_type or (isinstance(product_type, str) and product_type.strip() == ""):
-                    products_with_empty_type.append({
-                        "id": node.get("legacyResourceId"),
-                        "gid": node.get("id"),
-                        "title": node.get("title"),
-                        "handle": node.get("handle"),
-                        "productType": product_type or "",
-                        "status": status
-                    })
+                    classification_stats["total_found"] += 1
+                    
+                    product_id = node.get("legacyResourceId")
+                    product_gid = node.get("id")
+                    product_title = node.get("title", "")
+                    product_vendor = node.get("vendor")
+                    
+                    # Try to auto-classify
+                    auto_type = None
+                    if auto_classify:
+                        auto_type = self._determine_auto_type(product_title, product_vendor)
+                    
+                    if auto_type:
+                        # Auto-classify and update product type
+                        classification_stats["auto_classified"] += 1
+                        if auto_type == "Clothing":
+                            classification_stats["clothing"] += 1
+                        elif auto_type == "Resell Sneakers":
+                            classification_stats["resell_sneakers"] += 1
+                        elif auto_type == "Accessories":
+                            classification_stats["accessories"] = classification_stats.get("accessories", 0) + 1
+                        
+                        # Update product type
+                        success = self.update_product_type(product_id, product_gid, auto_type)
+                        if success:
+                            logger.info(
+                                f"✅ Auto-classified: {product_title[:50]}... → {auto_type}"
+                            )
+                        else:
+                            classification_stats["update_failed"] += 1
+                            logger.warning(
+                                f"⚠️  Failed to update: {product_title[:50]}... (would be {auto_type})"
+                            )
+                            # If update failed, add to export list
+                            products_to_export.append({
+                                "id": product_id,
+                                "gid": product_gid,
+                                "title": product_title,
+                                "handle": node.get("handle"),
+                                "productType": "",
+                                "status": status,
+                                "vendor": product_vendor or ""
+                            })
+                    else:
+                        # No auto-classification match, add to export list
+                        classification_stats["to_export"] += 1
+                        products_to_export.append({
+                            "id": product_id,
+                            "gid": product_gid,
+                            "title": product_title,
+                            "handle": node.get("handle"),
+                            "productType": "",
+                            "status": status,
+                            "vendor": product_vendor or ""
+                        })
 
             # Update pagination
             has_next_page = page_info.get("hasNextPage", False)
@@ -569,17 +688,33 @@ class ProductTypeManager:
 
             # Progress update
             if total_checked % 250 == 0:
-                logger.info(f"Checked {total_checked} products, found {len(products_with_empty_type)} with empty type...")
+                logger.info(
+                    f"Checked {total_checked} products, "
+                    f"found {classification_stats['total_found']} with empty type, "
+                    f"auto-classified {classification_stats['auto_classified']}, "
+                    f"to export {classification_stats['to_export']}..."
+                )
 
             # Small delay to avoid rate limiting
             time.sleep(0.1)
 
         logger.info("="*60)
         logger.info(f"✅ Checked {total_checked} ACTIVE products total")
-        logger.info(f"📊 Found {len(products_with_empty_type)} ACTIVE products with empty product type")
+        logger.info(f"📊 Found {classification_stats['total_found']} ACTIVE products with empty product type")
+        if auto_classify:
+            logger.info(f"🤖 Auto-classified: {classification_stats['auto_classified']} products")
+            if classification_stats.get('accessories', 0) > 0:
+                logger.info(f"   - Accessories: {classification_stats['accessories']}")
+            if classification_stats['clothing'] > 0:
+                logger.info(f"   - Clothing: {classification_stats['clothing']}")
+            if classification_stats['resell_sneakers'] > 0:
+                logger.info(f"   - Resell Sneakers: {classification_stats['resell_sneakers']}")
+            if classification_stats['update_failed'] > 0:
+                logger.warning(f"   - Update failed: {classification_stats['update_failed']}")
+        logger.info(f"📋 To export: {classification_stats['to_export']} products (no auto-classification match)")
         logger.info("="*60)
 
-        return products_with_empty_type
+        return products_to_export, classification_stats
 
     def export_products_with_empty_type_to_excel(
         self,
@@ -627,6 +762,7 @@ class ProductTypeManager:
             "Product ID",
             "Product Title",
             "Handle",
+            "Vendor",
             "Product Type",
             "Status"
         ]
@@ -648,16 +784,18 @@ class ProductTypeManager:
             ws.cell(row=row_idx, column=1, value=product.get("id", ""))
             ws.cell(row=row_idx, column=2, value=product.get("title", ""))
             ws.cell(row=row_idx, column=3, value=product.get("handle", ""))
-            ws.cell(row=row_idx, column=4, value=product.get("productType", "") or "")
-            ws.cell(row=row_idx, column=5, value=product.get("status", "ACTIVE"))
+            ws.cell(row=row_idx, column=4, value=product.get("vendor", "") or "")
+            ws.cell(row=row_idx, column=5, value=product.get("productType", "") or "")
+            ws.cell(row=row_idx, column=6, value=product.get("status", "ACTIVE"))
 
         # Auto-adjust column widths
         column_widths = {
             "A": 15,  # Product ID
             "B": 50,  # Product Title
             "C": 30,  # Handle
-            "D": 20,  # Product Type
-            "E": 12   # Status
+            "D": 25,  # Vendor
+            "E": 20,  # Product Type
+            "F": 12   # Status
         }
 
         for col_letter, width in column_widths.items():
@@ -667,7 +805,7 @@ class ProductTypeManager:
         summary_row = len(products) + 3
         ws.cell(row=summary_row, column=1, value="Total:").font = Font(bold=True)
         ws.cell(row=summary_row, column=2, value=len(products)).font = Font(bold=True)
-        ws.cell(row=summary_row, column=3, value="ACTIVE products with empty type")
+        ws.cell(row=summary_row, column=3, value="ACTIVE products with empty type (no auto-classification match)")
 
         # Save workbook
         wb.save(file_path)
