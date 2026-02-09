@@ -9,7 +9,6 @@ Use --all flag to update all products regardless of current value.
 """
 import os
 import sys
-import logging
 import argparse
 from pathlib import Path
 from dotenv import load_dotenv
@@ -19,27 +18,8 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from shared.shopify_client import ShopifyClient
+from shared.logger import setup_logger
 from scripts.set_variants_to_product_metafield.variants_manager import VariantsMetafieldManager
-
-
-def setup_logging():
-    """Configure logging for the script."""
-    log_dir = project_root / "logs"
-    log_dir.mkdir(exist_ok=True)
-
-    log_file = log_dir / "set_variants_metafield.log"
-
-    # Configure root logger
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
-    )
-
-    return logging.getLogger(__name__)
 
 
 def parse_arguments():
@@ -68,8 +48,8 @@ def main():
     # Load environment variables
     load_dotenv()
 
-    # Setup logging
-    logger = setup_logging()
+    # Setup logging using shared logger
+    logger = setup_logger('set_variants_metafield', 'set_variants_metafield.log')
 
     # Parse arguments
     args = parse_arguments()
