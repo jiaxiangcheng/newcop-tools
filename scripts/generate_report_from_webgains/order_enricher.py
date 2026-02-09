@@ -70,7 +70,7 @@ class OrderEnricher:
                     override=record.override,
                     date_time=record.date_time,
                     order_reference=record.order_reference,
-                    country=record.country,
+                    webgains_country=record.country,
                     commission_type=record.commission_type,
                     percentage=record.percentage,
                     shopify_order_data=None
@@ -175,7 +175,7 @@ class OrderEnricher:
             override=record.override,
             date_time=record.date_time,
             order_reference=record.order_reference,
-            country=record.country,
+            webgains_country=record.country,
             commission_type=record.commission_type,
             percentage=record.percentage
         )
@@ -221,9 +221,12 @@ class OrderEnricher:
             customer_info = None
             customer_raw = order_data.get("customer")
             if customer_raw:
-                # Get shipping country from defaultAddress
-                shipping_country = None
-                if customer_raw.get("defaultAddress"):
+                # Get shipping country - use pre-processed shipping_country from shopify_client
+                # which prioritizes order.shippingAddress over customer.defaultAddress
+                shipping_country = customer_raw.get("shipping_country")
+
+                # Fallback to defaultAddress if shipping_country wasn't pre-processed
+                if not shipping_country and customer_raw.get("defaultAddress"):
                     shipping_country = customer_raw["defaultAddress"].get("countryCode")
 
                 # Parse numberOfOrders (it's returned as string, convert to int)
@@ -362,7 +365,7 @@ class OrderEnricher:
             override=record.override,
             date_time=record.date_time,
             order_reference=record.order_reference,
-            country=record.country,
+            webgains_country=record.country,
             commission_type=record.commission_type,
             percentage=record.percentage,
             shopify_order_data=ShopifyOrderData(error=error)
