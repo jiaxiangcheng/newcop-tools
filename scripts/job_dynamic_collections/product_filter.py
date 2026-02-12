@@ -13,7 +13,7 @@ class ProductFilter:
                  excluded_tags: Optional[List[str]] = None,
                  included_tags: Optional[List[str]] = None,
                  excluded_brand_keywords: Optional[List[str]] = None,
-                 min_quarterly_sales: float = 5.0,
+                 min_sales_threshold: float = 5.0,
                  sales_period: str = "QUARTERLY"):
         """
         Initialize filter with configurable parameters
@@ -23,16 +23,16 @@ class ProductFilter:
             excluded_tags: List of tags to exclude (if product has any of these tags, exclude it)
             included_tags: List of tags to include (if specified, product must have at least one of these tags)
             excluded_brand_keywords: List of brand keywords to exclude (if product name/brand contains any, exclude it)
-            min_quarterly_sales: Minimum sales threshold (applies to either monthly or quarterly based on sales_period)
-            sales_period: Sales period to use for filtering ("MONTHLY" or "QUARTERLY")
+            min_sales_threshold: Minimum sales threshold (applies based on sales_period)
+            sales_period: Sales period to use for filtering ("MONTHLY", "QUARTERLY", or "WEEKLY")
         """
-        self.brand_keywords = brand_keywords or [
+        self.brand_keywords = brand_keywords if brand_keywords is not None else [
             "nike", "air jordan", "adidas", "yeezy", "new balance", "asics", "puma", "pop mart"
         ]
         self.excluded_tags = excluded_tags  # Can be None for no restriction
         self.included_tags = included_tags  # Can be None for no restriction
         self.excluded_brand_keywords = excluded_brand_keywords  # Can be None for no restriction
-        self.min_quarterly_sales = min_quarterly_sales  # Now used as min_sales_threshold
+        self.min_sales_threshold = min_sales_threshold
         self.sales_period = sales_period.upper()
         self.filtered_products: List[FilteredProduct] = []
     
@@ -50,7 +50,7 @@ class ProductFilter:
           b) Has AT LEAST ONE brand keyword from BRAND_KEYWORDS
 
         Step 3 - Additional requirements (ALL must pass):
-          a) Meets sales threshold (>= MIN_QUARTERLY_SALES)
+          a) Meets sales threshold (>= MIN_SALES_THRESHOLD)
 
         Step 4 - Sort by sales performance
         """
@@ -60,7 +60,7 @@ class ProductFilter:
         logger.info(f"=" * 80)
         logger.info(f"Filter Configuration:")
         logger.info(f"  - Sales Period: {self.sales_period}")
-        logger.info(f"  - Min Sales Threshold: {self.min_quarterly_sales}")
+        logger.info(f"  - Min Sales Threshold: {self.min_sales_threshold}")
         logger.info(f"  - Brand Keywords (OR): {self.brand_keywords}")
         logger.info(f"  - Included Tags (OR): {self.included_tags}")
         logger.info(f"  - Excluded Tags (ALWAYS): {self.excluded_tags}")
@@ -95,20 +95,27 @@ class ProductFilter:
                 continue
 
             # STEP 2: INCLUSION CHECKS (OR logic - at least ONE must pass)
-            # Check if product has included tags (newcop/ads)
-            has_included_tags = False
-            if self.included_tags:
-                has_included_tags = self._has_required_included_tags(record, self.included_tags)
+            # If both brand_keywords and included_tags are empty, skip inclusion checks (all products pass)
+            no_inclusion_filters = (not self.brand_keywords or len(self.brand_keywords) == 0) and (not self.included_tags or len(self.included_tags) == 0)
 
-            # Check if product has brand keywords
-            has_brand_keyword = False
-            if self.brand_keywords and len(self.brand_keywords) > 0:
-                has_brand_keyword = self._has_required_brand_keyword(record, self.brand_keywords)
+            if no_inclusion_filters:
+                # No inclusion filters configured, all products pass this step
+                pass
+            else:
+                # Check if product has included tags (newcop/ads)
+                has_included_tags = False
+                if self.included_tags and len(self.included_tags) > 0:
+                    has_included_tags = self._has_required_included_tags(record, self.included_tags)
 
-            # Product must have EITHER included tags OR brand keywords (OR logic)
-            if not has_included_tags and not has_brand_keyword:
-                excluded_by_missing_both += 1
-                continue
+                # Check if product has brand keywords
+                has_brand_keyword = False
+                if self.brand_keywords and len(self.brand_keywords) > 0:
+                    has_brand_keyword = self._has_required_brand_keyword(record, self.brand_keywords)
+
+                # Product must have EITHER included tags OR brand keywords (OR logic)
+                if not has_included_tags and not has_brand_keyword:
+                    excluded_by_missing_both += 1
+                    continue
 
             # STEP 3: Additional requirements
             # Check sales threshold
@@ -325,7 +332,7 @@ class ProductFilter:
     def _meets_sales_threshold(self, record: SalesRecord) -> bool:
         """Check if product meets minimum sales threshold"""
         sales_value = self._get_sales_value(record)
-        return sales_value >= self.min_quarterly_sales
+        return sales_value >= self.min_sales_threshold
 
     def _get_matching_excluded_tags(self, record: SalesRecord) -> List[str]:
         """Get list of excluded tags that match the product"""
@@ -436,6 +443,6 @@ class ProductFilter:
             "excluded_brand_keywords": self.excluded_brand_keywords,
             "excluded_tags": self.excluded_tags,
             "included_tags": self.included_tags,
-            "min_quarterly_sales": self.min_quarterly_sales,
+            "min_sales_threshold": self.min_sales_threshold,
             "total_filtered_products": len(self.filtered_products)
         }

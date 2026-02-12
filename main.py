@@ -63,6 +63,8 @@ def show_menu():
     print("8. 💰 Product Discounts - Calculate and sync product discount percentages (runs daily at 00:00)")
     print("9. 📝 Set Variants Metafield - Sync product variant names to custom.variants metafield")
     print("10. 🏷️  Set Product Type - Set product types based on collection and tags")
+    print("11. 💳 Scalapay Orders - Export all orders paid with Scalapay to Excel")
+    print("12. 🏷️  Inventory Tags - Set instore-online/instore-only tags based on inventory")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -904,6 +906,124 @@ def run_set_product_type() -> bool:
         print(f"❌ Unexpected error running set product type: {e}")
         return False
 
+def run_scalapay_orders() -> bool:
+    """Run the Scalapay orders export script with user mode selection"""
+    try:
+        print("\n💳 Starting Scalapay Orders Export Script...")
+        print("=" * 60)
+
+        # Ask user for execution mode
+        print("Select execution mode:")
+        print("1. 🔧 Export All (fetch all Scalapay orders and export to Excel)")
+        print("2. 🧪 Dry Run (analyze orders without writing file)")
+        print("3. 🔢 Limited Export (export first N orders)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True  # Return to main menu
+                elif mode_choice == "1":
+                    # Export all
+                    from scripts.get_all_orders_scalapay.main import run_scalapay_orders as run_scalapay
+                    success = run_scalapay(output_file=None, dry_run=False, limit=None)
+                    break
+                elif mode_choice == "2":
+                    # Dry run
+                    from scripts.get_all_orders_scalapay.main import run_scalapay_orders as run_scalapay
+                    success = run_scalapay(output_file=None, dry_run=True, limit=None)
+                    break
+                elif mode_choice == "3":
+                    # Limited export
+                    limit_input = input("\n🔢 Enter limit (number of orders to scan): ").strip()
+                    if not limit_input.isdigit():
+                        print("❌ Please enter a valid number.")
+                        continue
+                    limit = int(limit_input)
+                    from scripts.get_all_orders_scalapay.main import run_scalapay_orders as run_scalapay
+                    success = run_scalapay(output_file=None, dry_run=False, limit=limit)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Scalapay Orders Export completed successfully!")
+        else:
+            print("❌ Scalapay Orders Export completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing Scalapay orders script: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install openpyxl")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running Scalapay orders export: {e}")
+        return False
+
+
+def run_inventory_tags() -> bool:
+    """Run the inventory tag sync script with user mode selection"""
+    try:
+        print("\n🏷️  Starting Inventory Tag Sync Script...")
+        print("=" * 60)
+
+        print("Select execution mode:")
+        print("1. 🔧 Sync Tags (run once)")
+        print("2. 🧪 Dry Run (analyze changes only)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set-product-tag-depens-inventory/main.py"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice == "2":
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/set-product-tag-depens-inventory/main.py", "--dry-run"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-2.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Inventory Tag Sync completed successfully!")
+        else:
+            print("❌ Inventory Tag Sync completed with errors.")
+
+        return success
+
+    except Exception as e:
+        print(f"❌ Unexpected error running inventory tag sync: {e}")
+        return False
+
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -943,6 +1063,8 @@ def main():
         "8": run_product_discounts,
         "9": run_set_variants_metafield,
         "10": run_set_product_type,
+        "11": run_scalapay_orders,
+        "12": run_inventory_tags,
     }
     
     # Check if we're in a virtual environment
