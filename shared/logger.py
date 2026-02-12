@@ -26,6 +26,7 @@ if platform.system() == 'Windows':
                 '✅': '[OK]',
                 '❌': '[ERROR]',
                 '⚠️': '[WARNING]',
+                '⚠': '[WARNING]',
                 '🔧': '[CONFIG]',
                 '📅': '[SCHEDULE]',
                 '🔄': '[SYNC]',
@@ -33,10 +34,13 @@ if platform.system() == 'Windows':
                 '🚀': '[START]',
                 '📊': '[STATS]',
                 '⏹️': '[STOP]',
+                '⏹': '[STOP]',
                 '🛍️': '[SHOP]',
+                '🛍': '[SHOP]',
                 '🎯': '[TARGET]',
                 '💡': '[TIP]',
                 '🗑️': '[DELETE]',
+                '🗑': '[DELETE]',
                 '➕': '[ADD]',
                 '📁': '[FOLDER]',
                 '🏪': '[STORE]',
@@ -47,41 +51,71 @@ if platform.system() == 'Windows':
                 '👋': '[BYE]',
                 '💥': '[CRASH]',
                 '↩️': '[RETURN]',
+                '↩': '[RETURN]',
                 '⏰': '[TIMER]',
                 '🔍': '[SEARCH]',
                 '📝': '[WRITE]',
-                '💾': '[SAVE]'
+                '💾': '[SAVE]',
+                '⏭️': '[SKIP]',
+                '⏭': '[SKIP]',
+                '📈': '[CHART]',
+                '📉': '[GRAPH]',
+                '🏅': '[BADGE]',
+                '💰': '[MONEY]',
+                '👥': '[USERS]',
+                '📄': '[FILE]',
+                '🔂': '[REPEAT]',
+                '⚡': '[FAST]',
+                '🎁': '[GIFT]',
+                '🔔': '[BELL]',
+                '💬': '[COMMENT]',
+                '📌': '[PIN]',
+                '🔗': '[LINK]',
+                '📲': '[MOBILE]',
+                '🖥️': '[DESKTOP]',
+                '🖥': '[DESKTOP]',
+                '⚙️': '[SETTINGS]',
+                '⚙': '[SETTINGS]',
+                '🔐': '[LOCK]',
+                '🔓': '[UNLOCK]',
+                '📡': '[SIGNAL]',
+                '🌐': '[GLOBE]',
+                '📞': '[PHONE]',
+                '📧': '[EMAIL]',
+                '📮': '[MAILBOX]',
+                '📬': '[MAIL]',
+                '📭': '[NOMAIL]',
+                '📤': '[OUTBOX]',
+                '📨': '[ENVELOPE]',
+                '✉️': '[LETTER]',
+                '✉': '[LETTER]'
             }
         
         def emit(self, record):
             try:
-                # First try normal emission
-                super().emit(record)
-            except UnicodeEncodeError:
-                # Handle Unicode error by replacing emoji with text
+                msg = self.format(record)
+
+                # Replace emoji with safe alternatives for Windows console
+                for emoji, replacement in self.emoji_map.items():
+                    msg = msg.replace(emoji, replacement)
+
+                # Try to write the message
                 try:
-                    msg = self.format(record)
-                    
-                    # Replace emoji with safe alternatives
-                    for emoji, replacement in self.emoji_map.items():
-                        msg = msg.replace(emoji, replacement)
-                    
-                    # Try to write the safe message
                     self.stream.write(msg + self.terminator)
                     self.stream.flush()
-                    
-                except Exception:
-                    # Final fallback: force ASCII encoding
-                    try:
-                        safe_msg = self.format(record).encode('ascii', errors='replace').decode('ascii')
-                        for emoji, replacement in self.emoji_map.items():
-                            safe_msg = safe_msg.replace(emoji, replacement)
-                        self.stream.write(safe_msg + self.terminator)
-                        self.stream.flush()
-                    except Exception:
-                        # If all else fails, write a simple error message
-                        self.stream.write('[LOG ERROR: Unicode encoding issue]' + self.terminator)
-                        self.stream.flush()
+                except (UnicodeEncodeError, UnicodeDecodeError):
+                    # Fallback: force ASCII encoding with replacement
+                    safe_msg = msg.encode('ascii', errors='replace').decode('ascii')
+                    self.stream.write(safe_msg + self.terminator)
+                    self.stream.flush()
+
+            except Exception as e:
+                # Final fallback: write a simple error message
+                try:
+                    self.stream.write(f'[LOG ERROR: {str(e)[:50]}]' + self.terminator)
+                    self.stream.flush()
+                except:
+                    pass  # Give up gracefully
 
 def setup_logger(
     logger_name: str,
