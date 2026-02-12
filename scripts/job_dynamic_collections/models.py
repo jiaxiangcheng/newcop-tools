@@ -123,7 +123,7 @@ class CollectionUpdateRequest(BaseModel):
 
 class JobType(str, Enum):
     """Supported job types"""
-    GET_TOP_RESELL_PRODUCTS = "getTopResellProducts"
+    GET_PRODUCTS_BY_SALES = "getProductsBySales"
     GET_PRODUCTS_WITH_TOTAL_STOCK = "getProductsWithAtLeastTotalStock"
     # Future job types can be added here
     # SEASONAL_PRODUCTS = "seasonalProducts"
@@ -131,6 +131,7 @@ class JobType(str, Enum):
 
 class SalesPeriod(str, Enum):
     """Sales period types for filtering"""
+    WEEKLY = "WEEKLY"
     MONTHLY = "MONTHLY"
     QUARTERLY = "QUARTERLY"
 
@@ -145,12 +146,12 @@ class BaseJobSettings(BaseModel):
         validate_by_name = True
         use_enum_values = True
 
-class TopResellProductsJobSettings(BaseJobSettings):
-    """Job settings for getTopResellProducts job type"""
+class ProductsBySalesJobSettings(BaseJobSettings):
+    """Job settings for getProductsBySales job type"""
     AIRTABLE_BASE_ID: str
     AIRTABLE_TABLE_ID: str
     AIRTABLE_VIEW_ID: str
-    MIN_QUARTERLY_SALES: float = 5.0
+    MIN_SALES_THRESHOLD: float = 5.0
     SALES_PERIOD: SalesPeriod = SalesPeriod.QUARTERLY  # Default to QUARTERLY for backward compatibility
     EXCLUDED_TAGS: Optional[List[str]] = None
     INCLUDED_TAGS: Optional[List[str]] = None
@@ -159,12 +160,12 @@ class TopResellProductsJobSettings(BaseJobSettings):
 
     @validator('jobType')
     def validate_job_type(cls, v):
-        if v != JobType.GET_TOP_RESELL_PRODUCTS:
-            raise ValueError(f"Invalid job type for TopResellProductsJobSettings: {v}")
+        if v != JobType.GET_PRODUCTS_BY_SALES:
+            raise ValueError(f"Invalid job type for ProductsBySalesJobSettings: {v}")
         return v
 
-    @validator('MIN_QUARTERLY_SALES', pre=True)
-    def parse_min_quarterly_sales(cls, v):
+    @validator('MIN_SALES_THRESHOLD', pre=True)
+    def parse_min_sales_threshold(cls, v):
         """Convert string to float if needed"""
         if isinstance(v, str):
             return float(v)
@@ -213,8 +214,8 @@ class CollectionWithJobSettings(BaseModel):
         """Factory method to create appropriate job settings based on jobType"""
         job_type = job_data.get("jobType")
 
-        if job_type == JobType.GET_TOP_RESELL_PRODUCTS:
-            return TopResellProductsJobSettings(**job_data)
+        if job_type == JobType.GET_PRODUCTS_BY_SALES:
+            return ProductsBySalesJobSettings(**job_data)
         elif job_type == JobType.GET_PRODUCTS_WITH_TOTAL_STOCK:
             return GetProductsWithTotalStockJobSettings(**job_data)
         else:

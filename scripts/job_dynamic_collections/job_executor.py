@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.job_dynamic_collections.models import TopResellProductsJobSettings, GetProductsWithTotalStockJobSettings, SalesRecord, CollectionWithJobSettings, FilteredProduct
+from scripts.job_dynamic_collections.models import ProductsBySalesJobSettings, GetProductsWithTotalStockJobSettings, SalesRecord, CollectionWithJobSettings, FilteredProduct
 from shared.airtable_client import AirtableClient
 from shared.shopify_client import ShopifyClient
 from scripts.job_dynamic_collections.product_filter import ProductFilter
@@ -31,22 +31,22 @@ class JobExecutor(ABC):
         """Return the job type this executor supports"""
         pass
 
-class TopResellProductsJobExecutor(JobExecutor):
-    """Executor for getTopResellProducts job type"""
-    
+class ProductsBySalesJobExecutor(JobExecutor):
+    """Executor for getProductsBySales job type"""
+
     def get_supported_job_type(self) -> str:
-        return "getTopResellProducts"
-    
+        return "getProductsBySales"
+
     def execute(self, collection_with_settings: CollectionWithJobSettings) -> Dict[str, Any]:
-        """Execute the top resell products job"""
+        """Execute the products by sales job"""
         settings = collection_with_settings.job_settings
         collection_id = collection_with_settings.collection_id
         collection_title = collection_with_settings.collection_title
-        
-        if not isinstance(settings, TopResellProductsJobSettings):
-            raise ValueError(f"Invalid job settings type for TopResellProductsJobExecutor: {type(settings)}")
-        
-        logger.info(f"Starting getTopResellProducts job for collection '{collection_title}' (ID: {collection_id})")
+
+        if not isinstance(settings, ProductsBySalesJobSettings):
+            raise ValueError(f"Invalid job settings type for ProductsBySalesJobExecutor: {type(settings)}")
+
+        logger.info(f"Starting getProductsBySales job for collection '{collection_title}' (ID: {collection_id})")
         
         try:
             # Initialize clients with dynamic configuration from job settings
@@ -56,7 +56,7 @@ class TopResellProductsJobExecutor(JobExecutor):
                 excluded_brand_keywords=settings.EXCLUDED_BRAND_KEYWORDS,
                 excluded_tags=settings.EXCLUDED_TAGS,
                 included_tags=settings.INCLUDED_TAGS,
-                min_quarterly_sales=settings.MIN_QUARTERLY_SALES,
+                min_sales_threshold=settings.MIN_SALES_THRESHOLD,
                 sales_period=settings.SALES_PERIOD
             )
             
@@ -137,11 +137,11 @@ class TopResellProductsJobExecutor(JobExecutor):
                 }
             }
             
-            logger.info(f"Top resell products job completed successfully for collection {collection_id}")
+            logger.info(f"Products by sales job completed successfully for collection {collection_id}")
             return result
-            
+
         except Exception as e:
-            logger.error(f"Top resell products job failed for collection {collection_id}: {e}")
+            logger.error(f"Products by sales job failed for collection {collection_id}: {e}")
             return {
                 "success": False, 
                 "error": str(e), 
@@ -306,7 +306,7 @@ class JobExecutorFactory:
     def _register_executors(self):
         """Register available job executors"""
         executors = [
-            TopResellProductsJobExecutor(self.airtable_token, self.shopify_client, self.dry_run),
+            ProductsBySalesJobExecutor(self.airtable_token, self.shopify_client, self.dry_run),
             GetProductsWithTotalStockJobExecutor(self.airtable_token, self.shopify_client, self.dry_run),
             # Future executors can be added here
         ]
