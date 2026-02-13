@@ -372,6 +372,44 @@ class ShopifyClient:
             logger.error(f"Failed to remove products from collection: {e}")
             return False
     
+    def _ensure_collection_manual_sort(self, collection_id: str) -> bool:
+        """Ensure collection sort_order is set to MANUAL using GraphQL so position values are respected"""
+        mutation = """
+        mutation collectionUpdate($input: CollectionInput!) {
+            collectionUpdate(input: $input) {
+                collection {
+                    id
+                    sortOrder
+                }
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }
+        """
+        variables = {
+            "input": {
+                "id": f"gid://shopify/Collection/{collection_id}",
+                "sortOrder": "MANUAL"
+            }
+        }
+
+        try:
+            response = self.execute_graphql(mutation, variables)
+            if response and "data" in response:
+                result = response["data"].get("collectionUpdate", {})
+                user_errors = result.get("userErrors", [])
+                if user_errors:
+                    logger.warning(f"Failed to set collection {collection_id} sort_order to MANUAL: {user_errors}")
+                    return False
+                logger.info(f"Collection {collection_id} sort_order set to MANUAL")
+                return True
+            return False
+        except Exception as e:
+            logger.warning(f"Failed to set collection sort_order to MANUAL: {e}")
+            return False
+
     def update_collection_with_filtered_products(self, collection_id: str, filtered_products: List[FilteredProduct]) -> Dict[str, Any]:
         """
         Simple collection update strategy: Clear all products then add new ones in correct order.
@@ -407,6 +445,9 @@ class ShopifyClient:
                 "success": False
             }
         
+        # Step 0: Ensure collection sort_order is MANUAL so position values are respected
+        self._ensure_collection_manual_sort(collection_id)
+
         # Step 1: Get current products and remove ALL of them
         logger.info("Getting current products in collection...")
         try:
