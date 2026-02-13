@@ -21,6 +21,7 @@ class SalesRecord(BaseModel):
     shopify_id: Optional[int] = None
     
     # Sales data
+    weekly_sales: Optional[float] = 0.0
     quarterly_sales: Optional[float] = 0.0
     monthly_sales: Optional[float] = 0.0
     total_sales: Optional[float] = 0.0
@@ -65,6 +66,7 @@ class SalesRecord(BaseModel):
             brand=fields.get("Vendor") or fields.get("brand") or fields.get("marca"),
             tags=tags,
             shopify_id=shopify_id,
+            weekly_sales=float(fields.get("Ventas Semanales", 0) or fields.get("weekly_sales", 0) or 0),
             quarterly_sales=float(fields.get("Ventas trimestre", 0) or fields.get("quarterly_sales", 0) or fields.get("trimestre_sales", 0) or 0),
             monthly_sales=float(fields.get("Monthly total", 0) or fields.get("monthly_sales", 0) or fields.get("ventas_mensuales", 0) or 0),
             total_sales=float(fields.get("Total sale", 0) or fields.get("total_sales", 0) or fields.get("ventas_totales", 0) or 0),
@@ -79,6 +81,7 @@ class FilteredProduct(BaseModel):
     record_id: str
     product_name: str
     brand: str
+    weekly_sales: float = 0.0
     quarterly_sales: float
     monthly_sales: float = 0.0
     total_sales: float = 0.0

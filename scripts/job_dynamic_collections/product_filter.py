@@ -72,6 +72,7 @@ class ProductFilter:
         passed_by_tags = 0
         passed_by_brand = 0
         passed_by_both = 0
+        passed_by_no_filter = 0
         excluded_by_tags = 0
         excluded_by_brand = 0
         excluded_by_missing_both = 0
@@ -100,7 +101,8 @@ class ProductFilter:
 
             if no_inclusion_filters:
                 # No inclusion filters configured, all products pass this step
-                pass
+                has_included_tags = False
+                has_brand_keyword = False
             else:
                 # Check if product has included tags (newcop/ads)
                 has_included_tags = False
@@ -130,6 +132,7 @@ class ProductFilter:
                     record_id=record.record_id,
                     product_name=record.product_name or "",
                     brand=record.brand or "",
+                    weekly_sales=record.weekly_sales,
                     quarterly_sales=record.quarterly_sales,
                     monthly_sales=record.monthly_sales,
                     total_sales=record.total_sales,
@@ -141,7 +144,9 @@ class ProductFilter:
                 passed_all_filters += 1
 
                 # Track how product passed
-                if has_included_tags and has_brand_keyword:
+                if no_inclusion_filters:
+                    passed_by_no_filter += 1
+                elif has_included_tags and has_brand_keyword:
                     passed_by_both += 1
                 elif has_included_tags:
                     passed_by_tags += 1
@@ -152,6 +157,7 @@ class ProductFilter:
 
         logger.info(f"\n✅ Filtering completed: {len(all_products)} products passed all filters")
         logger.info(f"📊 Passed breakdown:")
+        logger.info(f"    - {passed_by_no_filter} by no inclusion filter (all pass)")
         logger.info(f"    - {passed_by_tags} by included tags only")
         logger.info(f"    - {passed_by_brand} by brand keywords only")
         logger.info(f"    - {passed_by_both} by both tags and brand")
@@ -165,7 +171,11 @@ class ProductFilter:
         # Step 4: Sort by sales performance (using the configured sales period)
         # Primary sort: sales value based on period (descending)
         # Secondary sort: product_name (A to Z, ascending)
-        if self.sales_period == "MONTHLY":
+        if self.sales_period == "WEEKLY":
+            all_products.sort(
+                key=lambda p: (-p.weekly_sales, p.product_name.lower())
+            )
+        elif self.sales_period == "MONTHLY":
             all_products.sort(
                 key=lambda p: (-p.monthly_sales, p.product_name.lower())
             )
@@ -184,7 +194,7 @@ class ProductFilter:
         if all_products:
             logger.info(f"📋 Top 10 products by {self.sales_period} sales:")
             for i, product in enumerate(all_products[:10], 1):
-                sales_value = product.monthly_sales if self.sales_period == "MONTHLY" else product.quarterly_sales
+                sales_value = product.weekly_sales if self.sales_period == "WEEKLY" else product.monthly_sales if self.sales_period == "MONTHLY" else product.quarterly_sales
                 logger.info(f"  {i}. {product.product_name} - {self.sales_period}: {sales_value}")
 
         self.filtered_products = all_products
@@ -324,7 +334,9 @@ class ProductFilter:
     
     def _get_sales_value(self, record: SalesRecord) -> float:
         """Get the appropriate sales value based on configured sales period"""
-        if self.sales_period == "MONTHLY":
+        if self.sales_period == "WEEKLY":
+            return record.weekly_sales or 0.0
+        elif self.sales_period == "MONTHLY":
             return record.monthly_sales or 0.0
         else:  # QUARTERLY
             return record.quarterly_sales or 0.0

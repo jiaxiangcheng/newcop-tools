@@ -250,6 +250,7 @@ class GetProductsWithTotalStockJobExecutor(JobExecutor):
                     record_id=record.record_id,
                     product_name=record.product_name or "",
                     brand=record.brand or "",
+                    weekly_sales=record.weekly_sales,
                     quarterly_sales=record.quarterly_sales,
                     monthly_sales=record.monthly_sales,
                     total_sales=record.total_sales,
