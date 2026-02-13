@@ -281,6 +281,9 @@ def main():
         else:
             sys.exit(0)
 
+    except KeyboardInterrupt:
+        logger.info("\n⚠️  Process interrupted by user")
+        sys.exit(130)
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)

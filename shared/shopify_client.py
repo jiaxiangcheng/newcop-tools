@@ -189,7 +189,7 @@ class ShopifyClient:
                     try:
                         error_data = e.response.json()
                         logger.error(f"Error adding product {product_id} to collection: {status_code} - {error_data}")
-                    except:
+                    except Exception:
                         logger.error(f"Error adding product {product_id} to collection: {status_code} - {e.response.text}")
             else:
                 logger.error(f"Error adding product {product_id} to collection: {e}")
@@ -309,7 +309,7 @@ class ShopifyClient:
                         response = requests.delete(url, headers=self.headers)
                         response.raise_for_status()
                         return True
-                    except:
+                    except Exception:
                         return False
                 else:
                     logger.warning(f"Error removing collect {collect_id}: {status_code}")
@@ -745,7 +745,7 @@ class ShopifyClient:
                         response = requests.post(url, headers=self.headers, json=payload)
                         response.raise_for_status()
                         return True
-                    except:
+                    except Exception:
                         return False
                 else:
                     logger.warning(f"Error adding product {product_id}: {status_code}")
@@ -866,7 +866,7 @@ class ShopifyClient:
                 error_text = e.response.text
                 try:
                     error_details = e.response.json()
-                except:
+                except Exception:
                     error_details = {"raw_response": e.response.text}
             
             if status_code == 429:
@@ -928,7 +928,7 @@ class ShopifyClient:
                     response.raise_for_status()
                     data = response.json()
                     return data.get("metafields", [])
-                except:
+                except Exception:
                     logger.warning(f"Failed to fetch metafields for variant {variant_id} after retry")
                     return []
             else:
