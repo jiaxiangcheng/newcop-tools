@@ -336,36 +336,41 @@ Examples:
     if not enricher.initialize_shopify_client():
         sys.exit(1)
 
-    # Batch or single file processing
-    if args.batch:
-        # Batch processing mode
-        success = enricher.process_batch(
-            input_dir=args.input_dir,
-            output_dir=args.output_dir,
-            dry_run=args.dry_run,
-            limit=args.limit
-        )
-    else:
-        # Single file mode
-        if not args.input:
-            parser.error("--input is required for single file mode (or use --batch for batch processing)")
+    try:
+        # Batch or single file processing
+        if args.batch:
+            # Batch processing mode
+            success = enricher.process_batch(
+                input_dir=args.input_dir,
+                output_dir=args.output_dir,
+                dry_run=args.dry_run,
+                limit=args.limit
+            )
+        else:
+            # Single file mode
+            if not args.input:
+                parser.error("--input is required for single file mode (or use --batch for batch processing)")
 
-        # Determine output file path
-        output_file = args.output
-        if not output_file:
-            # Generate default output filename
-            input_path = Path(args.input)
-            output_file = input_path.parent / f"{input_path.stem}_enriched{input_path.suffix}"
+            # Determine output file path
+            output_file = args.output
+            if not output_file:
+                # Generate default output filename
+                input_path = Path(args.input)
+                output_file = input_path.parent / f"{input_path.stem}_enriched{input_path.suffix}"
 
-        # Process single report
-        success = enricher.process_report(
-            input_file=args.input,
-            output_file=str(output_file),
-            dry_run=args.dry_run,
-            limit=args.limit
-        )
+            # Process single report
+            success = enricher.process_report(
+                input_file=args.input,
+                output_file=str(output_file),
+                dry_run=args.dry_run,
+                limit=args.limit
+            )
 
-    sys.exit(0 if success else 1)
+        sys.exit(0 if success else 1)
+
+    except KeyboardInterrupt:
+        logger.info("\n⚠️  Process interrupted by user")
+        sys.exit(130)
 
 
 if __name__ == "__main__":

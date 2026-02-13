@@ -242,13 +242,18 @@ Examples:
 
     args = parser.parse_args()
 
-    success = run_scalapay_orders(
-        output_file=args.output,
-        dry_run=args.dry_run,
-        limit=args.limit
-    )
+    try:
+        success = run_scalapay_orders(
+            output_file=args.output,
+            dry_run=args.dry_run,
+            limit=args.limit
+        )
 
-    sys.exit(0 if success else 1)
+        sys.exit(0 if success else 1)
+
+    except KeyboardInterrupt:
+        logger.info("\n⚠️  Process interrupted by user")
+        sys.exit(130)
 
 
 if __name__ == "__main__":

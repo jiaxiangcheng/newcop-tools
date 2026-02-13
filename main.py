@@ -1085,10 +1085,13 @@ def main():
             elif choice in script_functions:
                 # Clear screen before running script
                 os.system('clear' if os.name == 'posix' else 'cls')
-                
+
                 # Run the selected script
-                script_functions[choice]()
-                
+                try:
+                    script_functions[choice]()
+                except KeyboardInterrupt:
+                    print("\n\n⏹️  Operation cancelled by user")
+
                 # Wait for user input before returning to menu
                 wait_for_enter()
                 

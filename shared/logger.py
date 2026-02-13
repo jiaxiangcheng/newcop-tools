@@ -114,7 +114,7 @@ if platform.system() == 'Windows':
                 try:
                     self.stream.write(f'[LOG ERROR: {str(e)[:50]}]' + self.terminator)
                     self.stream.flush()
-                except:
+                except Exception:
                     pass  # Give up gracefully
 
 def setup_logger(
