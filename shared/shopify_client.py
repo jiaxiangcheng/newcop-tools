@@ -1722,6 +1722,549 @@ class ShopifyClient:
         logger.debug(f"Order not found by number: {order_number}")
         return None
 
+    def get_collection_products_graphql(self, collection_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all products in a collection with full details using GraphQL.
+        Returns products with variants, images, inventory, options, and SEO info.
+        Only returns products that have at least one variant with inventory > 0.
+        """
+        all_products = []
+        cursor = None
+        has_next_page = True
+
+        query = """
+        query getCollectionProducts($collectionId: ID!, $cursor: String) {
+            collection(id: $collectionId) {
+                products(first: 25, after: $cursor) {
+                    pageInfo {
+                        hasNextPage
+                        endCursor
+                    }
+                    edges {
+                        node {
+                            id
+                            title
+                            handle
+                            vendor
+                            productType
+                            tags
+                            status
+                            descriptionHtml
+                            seo {
+                                title
+                                description
+                            }
+                            options {
+                                name
+                                values
+                            }
+                            images(first: 50) {
+                                edges {
+                                    node {
+                                        id
+                                        url
+                                        altText
+                                    }
+                                }
+                            }
+                            variants(first: 100) {
+                                edges {
+                                    node {
+                                        id
+                                        title
+                                        sku
+                                        price
+                                        compareAtPrice
+                                        inventoryQuantity
+                                        inventoryItem {
+                                            id
+                                        }
+                                        selectedOptions {
+                                            name
+                                            value
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        collection_gid = f"gid://shopify/Collection/{collection_id}"
+
+        while has_next_page:
+            variables = {"collectionId": collection_gid, "cursor": cursor}
+
+            try:
+                response = self.execute_graphql(query, variables)
+
+                if "errors" in response:
+                    logger.error(f"GraphQL errors fetching collection products: {response['errors']}")
+                    break
+
+                collection_data = response.get("data", {}).get("collection")
+                if not collection_data:
+                    logger.warning(f"Collection {collection_id} not found via GraphQL")
+                    break
+
+                products_data = collection_data.get("products", {})
+                page_info = products_data.get("pageInfo", {})
+                edges = products_data.get("edges", [])
+
+                for edge in edges:
+                    product = edge.get("node", {})
+
+                    # Check if at least one variant has inventory > 0
+                    variants = product.get("variants", {}).get("edges", [])
+                    has_stock = any(
+                        v.get("node", {}).get("inventoryQuantity", 0) > 0
+                        for v in variants
+                    )
+
+                    if has_stock:
+                        all_products.append(product)
+
+                has_next_page = page_info.get("hasNextPage", False)
+                cursor = page_info.get("endCursor")
+
+                logger.debug(f"Fetched {len(edges)} products (in-stock so far: {len(all_products)})")
+                time.sleep(0.5)
+
+            except Exception as e:
+                logger.error(f"Error fetching collection products via GraphQL: {e}")
+                break
+
+        logger.info(f"Found {len(all_products)} in-stock products in collection {collection_id}")
+        return all_products
+
+    def create_product_graphql(self, product_input: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Create a new product using GraphQL productCreate mutation (2025-01 API).
+        Uses ProductCreateInput (argument name: 'product'), not the deprecated ProductInput.
+
+        Args:
+            product_input: Dictionary matching Shopify ProductCreateInput type.
+                           Supports: title, descriptionHtml, vendor, productType, tags,
+                           status, seo, handle, productOptions.
+                           'media' key is extracted and passed as separate argument.
+                           'variants' key is extracted and handled via productVariantsBulkCreate.
+
+        Returns:
+            Created product data or None if failed
+        """
+        mutation = """
+        mutation productCreate($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
+            productCreate(product: $product, media: $media) {
+                product {
+                    id
+                    title
+                    handle
+                    variants(first: 10) {
+                        edges {
+                            node {
+                                id
+                                title
+                                sku
+                                inventoryItem {
+                                    id
+                                }
+                            }
+                        }
+                    }
+                }
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }
+        """
+
+        media = product_input.pop("media", None)
+        # Remove variants - they must be created separately via productVariantsBulkCreate
+        product_input.pop("variants", None)
+        variables = {"product": product_input}
+        if media:
+            variables["media"] = media
+
+        try:
+            response = self.execute_graphql(mutation, variables)
+
+            if "errors" in response:
+                logger.error(f"GraphQL errors creating product: {response['errors']}")
+                return None
+
+            result = response.get("data", {}).get("productCreate", {})
+            user_errors = result.get("userErrors", [])
+
+            if user_errors:
+                logger.error(f"User errors creating product: {user_errors}")
+                return None
+
+            product = result.get("product")
+            if product:
+                logger.info(f"Created product: {product.get('title')} ({product.get('id')})")
+                return product
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Exception creating product: {e}")
+            return None
+
+    def create_product_variants_bulk_graphql(
+        self, product_id: str, variants: List[Dict[str, Any]]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Create multiple variants for a product using productVariantsBulkCreate.
+
+        Args:
+            product_id: Product GID (e.g., 'gid://shopify/Product/123')
+            variants: List of variant dicts with keys: price, compareAtPrice, sku, optionValues
+
+        Returns:
+            List of created variant data or None if failed
+        """
+        mutation = """
+        mutation productVariantsBulkCreate(
+            $productId: ID!,
+            $variants: [ProductVariantsBulkInput!]!,
+            $strategy: ProductVariantsBulkCreateStrategy
+        ) {
+            productVariantsBulkCreate(
+                productId: $productId,
+                variants: $variants,
+                strategy: $strategy
+            ) {
+                productVariants {
+                    id
+                    title
+                    sku
+                    inventoryItem {
+                        id
+                    }
+                }
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }
+        """
+
+        variables = {
+            "productId": product_id,
+            "variants": variants,
+            "strategy": "REMOVE_STANDALONE_VARIANT",
+        }
+
+        try:
+            response = self.execute_graphql(mutation, variables)
+
+            if "errors" in response:
+                logger.error(f"GraphQL errors creating variants: {response['errors']}")
+                return None
+
+            result = response.get("data", {}).get("productVariantsBulkCreate", {})
+            user_errors = result.get("userErrors", [])
+
+            if user_errors:
+                logger.error(f"User errors creating variants: {user_errors}")
+                return None
+
+            created_variants = result.get("productVariants", [])
+            logger.info(f"Created {len(created_variants)} variants for product {product_id}")
+            return created_variants
+
+        except Exception as e:
+            logger.error(f"Exception creating variants: {e}")
+            return None
+
+    def inventory_activate_graphql(self, inventory_item_id: str, location_id: str) -> bool:
+        """
+        Activate (stock) an inventory item at a location so inventory can be set there.
+        Uses the inventoryBulkToggleActivation mutation.
+        """
+        mutation = """
+        mutation inventoryBulkToggleActivation($inventoryItemId: ID!, $inventoryItemUpdates: [InventoryBulkToggleActivationInput!]!) {
+            inventoryBulkToggleActivation(
+                inventoryItemId: $inventoryItemId,
+                inventoryItemUpdates: $inventoryItemUpdates
+            ) {
+                inventoryItem {
+                    id
+                }
+                inventoryLevels {
+                    id
+                    location {
+                        id
+                        name
+                    }
+                }
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }
+        """
+
+        variables = {
+            "inventoryItemId": inventory_item_id,
+            "inventoryItemUpdates": [
+                {
+                    "locationId": location_id,
+                    "activate": True
+                }
+            ]
+        }
+
+        try:
+            response = self.execute_graphql(mutation, variables)
+
+            if "errors" in response:
+                logger.error(f"GraphQL errors activating inventory: {response['errors']}")
+                return False
+
+            result = response.get("data", {}).get("inventoryBulkToggleActivation", {})
+            user_errors = result.get("userErrors", [])
+
+            if user_errors:
+                # "already stocked" is not a real error, treat as success
+                for ue in user_errors:
+                    if "already" in ue.get("message", "").lower():
+                        return True
+                logger.error(f"User errors activating inventory: {user_errors}")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Exception activating inventory: {e}")
+            return False
+
+    def set_inventory_quantity_graphql(self, inventory_item_id: str, location_id: str, quantity: int) -> bool:
+        """
+        Set the inventory quantity for an inventory item at a location using GraphQL.
+        """
+        mutation = """
+        mutation inventorySetQuantities($input: InventorySetQuantitiesInput!) {
+            inventorySetQuantities(input: $input) {
+                inventoryAdjustmentGroup {
+                    reason
+                }
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }
+        """
+
+        variables = {
+            "input": {
+                "reason": "correction",
+                "name": "available",
+                "ignoreCompareQuantity": True,
+                "quantities": [
+                    {
+                        "inventoryItemId": inventory_item_id,
+                        "locationId": location_id,
+                        "quantity": quantity
+                    }
+                ]
+            }
+        }
+
+        try:
+            response = self.execute_graphql(mutation, variables)
+
+            if "errors" in response:
+                logger.error(f"GraphQL errors setting inventory: {response['errors']}")
+                return False
+
+            result = response.get("data", {}).get("inventorySetQuantities", {})
+            user_errors = result.get("userErrors", [])
+
+            if user_errors:
+                logger.error(f"User errors setting inventory: {user_errors}")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Exception setting inventory: {e}")
+            return False
+
+    def get_locations_graphql(self) -> List[Dict[str, Any]]:
+        """Get all locations using GraphQL."""
+        query = """
+        query getLocations {
+            locations(first: 50) {
+                edges {
+                    node {
+                        id
+                        name
+                        isActive
+                    }
+                }
+            }
+        }
+        """
+
+        try:
+            response = self.execute_graphql(query)
+
+            if "errors" in response:
+                logger.error(f"GraphQL errors fetching locations: {response['errors']}")
+                return []
+
+            edges = response.get("data", {}).get("locations", {}).get("edges", [])
+            locations = [edge.get("node", {}) for edge in edges]
+            logger.info(f"Found {len(locations)} locations")
+            return locations
+
+        except Exception as e:
+            logger.error(f"Exception fetching locations: {e}")
+            return []
+
+    def get_inventory_levels_graphql(self, inventory_item_id: str) -> List[Dict[str, Any]]:
+        """Get inventory levels for an inventory item across all locations."""
+        query = """
+        query getInventoryLevels($inventoryItemId: ID!) {
+            inventoryItem(id: $inventoryItemId) {
+                inventoryLevels(first: 50) {
+                    edges {
+                        node {
+                            id
+                            quantities(names: ["available"]) {
+                                name
+                                quantity
+                            }
+                            location {
+                                id
+                                name
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        variables = {"inventoryItemId": inventory_item_id}
+
+        try:
+            response = self.execute_graphql(query, variables)
+
+            if "errors" in response:
+                logger.error(f"GraphQL errors fetching inventory levels: {response['errors']}")
+                return []
+
+            edges = (
+                response.get("data", {})
+                .get("inventoryItem", {})
+                .get("inventoryLevels", {})
+                .get("edges", [])
+            )
+            levels = [edge.get("node", {}) for edge in edges]
+            return levels
+
+        except Exception as e:
+            logger.error(f"Exception fetching inventory levels: {e}")
+            return []
+
+    def publish_product_graphql(self, product_id: str, exclude_channels: List[str] = None) -> bool:
+        """Publish a product to sales channels using GraphQL.
+
+        Args:
+            product_id: The product GID to publish.
+            exclude_channels: List of channel name substrings to exclude (case insensitive).
+                              Defaults to ["online store", "facebook", "instagram", "google", "youtube"].
+        """
+        if exclude_channels is None:
+            exclude_channels = ["online store", "facebook", "instagram", "google", "youtube"]
+
+        mutation = """
+        mutation publishProduct($id: ID!, $input: [PublicationInput!]!) {
+            publishablePublish(id: $id, input: $input) {
+                publishable {
+                    availablePublicationsCount {
+                        count
+                    }
+                }
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }
+        """
+
+        pub_query = """
+        query getPublications {
+            publications(first: 20) {
+                edges {
+                    node {
+                        id
+                        name
+                    }
+                }
+            }
+        }
+        """
+
+        try:
+            pub_response = self.execute_graphql(pub_query)
+            publications = pub_response.get("data", {}).get("publications", {}).get("edges", [])
+
+            # Collect all publication IDs except excluded channels
+            pub_inputs = []
+            for edge in publications:
+                node = edge.get("node", {})
+                name = node.get("name", "")
+                name_lower = name.lower()
+
+                excluded = any(exc in name_lower for exc in exclude_channels)
+                if excluded:
+                    logger.debug(f"Skipping channel: {name}")
+                    continue
+
+                pub_inputs.append({"publicationId": node.get("id")})
+                logger.info(f"Will publish to channel: {name}")
+
+            if not pub_inputs:
+                logger.warning("No eligible sales channels found to publish to")
+                return False
+
+            variables = {
+                "id": product_id,
+                "input": pub_inputs
+            }
+
+            response = self.execute_graphql(mutation, variables)
+
+            if "errors" in response:
+                logger.error(f"GraphQL errors publishing product: {response['errors']}")
+                return False
+
+            result = response.get("data", {}).get("publishablePublish", {})
+            user_errors = result.get("userErrors", [])
+
+            if user_errors:
+                logger.error(f"User errors publishing product: {user_errors}")
+                return False
+
+            logger.info(f"Published product {product_id} to {len(pub_inputs)} sales channel(s)")
+            return True
+
+        except Exception as e:
+            logger.error(f"Exception publishing product: {e}")
+            return False
+
     def update_product_metafield_graphql(
         self,
         product_id: int,

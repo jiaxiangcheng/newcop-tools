@@ -65,6 +65,7 @@ def show_menu():
     print("10. 🏷️  Set Product Type - Set product types based on collection and tags")
     print("11. 💳 Scalapay Orders - Export all orders paid with Scalapay to Excel")
     print("12. 🏷️  Inventory Tags - Set instore-online/instore-only tags based on inventory")
+    print("13. 📋 Duplicate Products - Duplicate in-stock products from a collection")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -1024,6 +1025,58 @@ def run_inventory_tags() -> bool:
         return False
 
 
+def run_duplicate_products() -> bool:
+    """Run the duplicate products from collection script"""
+    try:
+        print("\n📋 Starting Duplicate Products from Collection...")
+        print("=" * 60)
+
+        print("Select execution mode:")
+        print("1. 📋 Duplicate Products (enter collection ID)")
+        print("2. 🧪 Dry Run (analyze without making changes)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice in ["1", "2"]:
+                    collection_id = input("\n🎯 Enter source collection ID: ").strip()
+                    if not collection_id:
+                        print("❌ No collection ID provided.")
+                        continue
+
+                    dry_run = mode_choice == "2"
+                    import subprocess
+                    args = ["python", "scripts/duplicate-products-from-collection/main.py", "--collection", collection_id]
+                    if dry_run:
+                        args.append("--dry-run")
+                    result = subprocess.run(args, cwd=os.getcwd())
+                    success = result.returncode == 0
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-2.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Duplicate Products completed successfully!")
+        else:
+            print("❌ Duplicate Products completed with errors.")
+
+        return success
+
+    except Exception as e:
+        print(f"❌ Unexpected error running duplicate products: {e}")
+        return False
+
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -1065,6 +1118,7 @@ def main():
         "10": run_set_product_type,
         "11": run_scalapay_orders,
         "12": run_inventory_tags,
+        "13": run_duplicate_products,
     }
     
     # Check if we're in a virtual environment
