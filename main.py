@@ -383,6 +383,27 @@ def run_webgains_report_enricher() -> bool:
         elif mode_choice == "3":
             batch_mode = True
 
+        # Ask for merged output if batch mode
+        merged = False
+        if batch_mode:
+            print("\n📦 Output format:")
+            print("1. 📅 Separate files per month (default)")
+            print("2. 📋 Single merged file (all data combined)")
+            while True:
+                try:
+                    format_choice = input("\n🔸 Choose output format (1/2): ").strip()
+                    if format_choice in ["", "1"]:
+                        merged = False
+                        break
+                    elif format_choice == "2":
+                        merged = True
+                        break
+                    else:
+                        print(f"❌ Invalid choice: '{format_choice}'. Please select 1 or 2.")
+                except (EOFError, KeyboardInterrupt):
+                    print("\n⏹️  Operation cancelled by user")
+                    return True
+
         # Validate environment
         if not enricher.validate_environment():
             return False
@@ -422,7 +443,8 @@ def run_webgains_report_enricher() -> bool:
                 input_dir=None,  # Use default
                 output_dir=None,  # Use default
                 dry_run=dry_run,
-                limit=limit
+                limit=limit,
+                merged=merged
             )
         else:
             # Process single file
