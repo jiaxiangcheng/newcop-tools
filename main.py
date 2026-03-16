@@ -66,6 +66,7 @@ def show_menu():
     print("11. 💳 Scalapay Orders - Export all orders paid with Scalapay to Excel")
     print("12. 🏷️  Inventory Tags - Set instore-online/instore-only tags based on inventory")
     print("13. 📋 Duplicate Products - Duplicate in-stock products from a collection")
+    print("14. 👥 Get Customers - Export customers for Meta Custom Audience CSV")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -1099,6 +1100,65 @@ def run_duplicate_products() -> bool:
         return False
 
 
+def run_get_customers_menu() -> bool:
+    """Run the get customers for Meta audience export script"""
+    try:
+        print("\n👥 Starting Get Customers for Meta Audience Export...")
+        print("=" * 60)
+
+        print("Select execution mode:")
+        print("1. 📤 Export All (fetch all customers and export to CSV)")
+        print("2. 🧪 Dry Run (analyze customers without writing files)")
+        print("3. 🔢 Limited Export (export first N customers)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    from scripts.get_customers.main import run_get_customers
+                    success = run_get_customers(dry_run=False, limit=None)
+                    break
+                elif mode_choice == "2":
+                    from scripts.get_customers.main import run_get_customers
+                    success = run_get_customers(dry_run=True, limit=None)
+                    break
+                elif mode_choice == "3":
+                    limit_input = input("\n🔢 Enter limit (number of customers to fetch): ").strip()
+                    if not limit_input.isdigit():
+                        print("❌ Please enter a valid number.")
+                        continue
+                    limit = int(limit_input)
+                    from scripts.get_customers.main import run_get_customers
+                    success = run_get_customers(dry_run=False, limit=limit)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Get Customers Export completed successfully!")
+        else:
+            print("❌ Get Customers Export completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing get customers script: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running get customers export: {e}")
+        return False
+
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -1141,6 +1201,7 @@ def main():
         "11": run_scalapay_orders,
         "12": run_inventory_tags,
         "13": run_duplicate_products,
+        "14": run_get_customers_menu,
     }
     
     # Check if we're in a virtual environment
