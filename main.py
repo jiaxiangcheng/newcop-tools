@@ -67,6 +67,7 @@ def show_menu():
     print("12. 🏷️  Inventory Tags - Set instore-online/instore-only tags based on inventory")
     print("13. 📋 Duplicate Products - Duplicate in-stock products from a collection")
     print("14. 👥 Get Customers - Export customers for Meta Custom Audience CSV")
+    print("15. 🏷️  Bulk Product Type - Batch operations on product types (list/find/replace)")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -1159,6 +1160,93 @@ def run_get_customers_menu() -> bool:
         return False
 
 
+def run_bulk_product_type_menu() -> bool:
+    """Run the bulk product type handler script"""
+    try:
+        print("\n🏷️  Starting Bulk Product Type Handler...")
+        print("=" * 60)
+
+        print("Select operation:")
+        print("1. 📋 List Empty Type Products (export to CSV)")
+        print("2. 🔍 Find Products by Type (export to CSV)")
+        print("3. 🔄 Replace Product Type (update and export change log)")
+        print("4. 🧪 Dry Run Replace (analyze without making changes)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose operation: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/bulk-product-type-handler/main.py", "--action", "empty"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice == "2":
+                    product_type = input("\n🏷️  Enter product type to search: ").strip()
+                    if not product_type:
+                        print("❌ No product type provided.")
+                        continue
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/bulk-product-type-handler/main.py",
+                         "--action", "find", "--type", product_type],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice in ["3", "4"]:
+                    old_type = input("\n🏷️  Enter current product type: ").strip()
+                    if not old_type:
+                        print("❌ No product type provided.")
+                        continue
+                    new_type = input("🏷️  Enter new product type: ").strip()
+                    if not new_type:
+                        print("❌ No new product type provided.")
+                        continue
+
+                    dry_run = mode_choice == "4"
+                    if not dry_run:
+                        print(f"\n⚠️  This will replace '{old_type}' → '{new_type}' for ALL matching products!")
+                        confirm = input("Continue? (y/N): ").strip().lower()
+                        if confirm not in ['y', 'yes']:
+                            print("Operation cancelled.")
+                            return True
+
+                    import subprocess
+                    args = ["python", "scripts/bulk-product-type-handler/main.py",
+                            "--action", "replace", "--type", old_type, "--new-type", new_type]
+                    if dry_run:
+                        args.append("--dry-run")
+                    result = subprocess.run(args, cwd=os.getcwd())
+                    success = result.returncode == 0
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-4.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Bulk Product Type operation completed successfully!")
+        else:
+            print("❌ Bulk Product Type operation completed with errors.")
+
+        return success
+
+    except Exception as e:
+        print(f"❌ Unexpected error running bulk product type handler: {e}")
+        return False
+
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -1202,6 +1290,7 @@ def main():
         "12": run_inventory_tags,
         "13": run_duplicate_products,
         "14": run_get_customers_menu,
+        "15": run_bulk_product_type_menu,
     }
     
     # Check if we're in a virtual environment
