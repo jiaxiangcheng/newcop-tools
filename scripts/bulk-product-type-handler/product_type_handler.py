@@ -2,8 +2,10 @@ import csv
 import os
 import time
 import logging
-from typing import List
+from typing import List, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import openpyxl
 
 from models import ProductInfo, TypeReplaceRecord
 
@@ -194,6 +196,93 @@ class ProductTypeHandler:
                 time.sleep(0.1)
 
         logger.info(f"Replace complete: {updated} updated, {failed} failed out of {len(products)}")
+        return records
+
+    def read_excel_products(self, filepath: str) -> List[Dict[str, str]]:
+        wb = openpyxl.load_workbook(filepath, read_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(min_row=1, values_only=True))
+        wb.close()
+
+        if not rows:
+            return []
+
+        headers = [str(h).strip().lower() for h in rows[0]]
+        if "product_id" not in headers or "product_type" not in headers:
+            raise ValueError(f"Excel must have 'product_id' and 'product_type' columns. Found: {headers}")
+
+        id_idx = headers.index("product_id")
+        type_idx = headers.index("product_type")
+        title_idx = headers.index("title") if "title" in headers else None
+
+        products = []
+        for row in rows[1:]:
+            pid = str(row[id_idx]).strip() if row[id_idx] else ""
+            ptype = str(row[type_idx]).strip() if row[type_idx] else ""
+            title = str(row[title_idx]).strip() if title_idx is not None and row[title_idx] else ""
+            if pid and ptype:
+                products.append({"product_id": pid, "product_type": ptype, "title": title})
+
+        logger.info(f"Read {len(products)} products from {filepath}")
+        return products
+
+    def import_product_types(self, excel_products: List[Dict[str, str]], dry_run: bool = False) -> List[TypeReplaceRecord]:
+        if not excel_products:
+            logger.info("No products to import")
+            return []
+
+        logger.info(f"Importing product types for {len(excel_products)} products (dry_run={dry_run})")
+
+        if dry_run:
+            return [
+                TypeReplaceRecord(
+                    product_id=p["product_id"],
+                    title=p["title"],
+                    old_type="",
+                    new_type=p["product_type"],
+                    success=True,
+                )
+                for p in excel_products
+            ]
+
+        records = []
+        updated = 0
+        failed = 0
+        total = len(excel_products)
+
+        with ThreadPoolExecutor(max_workers=self.MAX_CONCURRENT_UPDATES) as executor:
+            future_to_product = {
+                executor.submit(
+                    self._update_single_product_type,
+                    f"gid://shopify/Product/{p['product_id']}",
+                    p["product_type"],
+                ): p
+                for p in excel_products
+            }
+
+            for future in as_completed(future_to_product):
+                product = future_to_product[future]
+                success, error = future.result()
+
+                records.append(TypeReplaceRecord(
+                    product_id=product["product_id"],
+                    title=product["title"],
+                    old_type="",
+                    new_type=product["product_type"],
+                    success=success,
+                    error=error,
+                ))
+
+                if success:
+                    updated += 1
+                    logger.info(f"[{updated + failed}/{total}] Updated: {product['title']} -> {product['product_type']}")
+                else:
+                    failed += 1
+                    logger.error(f"[{updated + failed}/{total}] Failed: {product['title']} - {error}")
+
+                time.sleep(0.1)
+
+        logger.info(f"Import complete: {updated} updated, {failed} failed out of {total}")
         return records
 
     def write_products_csv(self, products: List[ProductInfo], filepath: str):

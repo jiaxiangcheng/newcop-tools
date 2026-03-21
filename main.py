@@ -1171,6 +1171,8 @@ def run_bulk_product_type_menu() -> bool:
         print("2. 🔍 Find Products by Type (export to CSV)")
         print("3. 🔄 Replace Product Type (update and export change log)")
         print("4. 🧪 Dry Run Replace (analyze without making changes)")
+        print("5. 📥 Import Product Types from Excel (set types from file)")
+        print("6. 🧪 Dry Run Import (analyze Excel without making changes)")
         print("0. ↩️  Return to main menu")
 
         while True:
@@ -1226,8 +1228,31 @@ def run_bulk_product_type_menu() -> bool:
                     result = subprocess.run(args, cwd=os.getcwd())
                     success = result.returncode == 0
                     break
+                elif mode_choice in ["5", "6"]:
+                    file_paths = input("\n📁 Enter Excel file path(s) (comma-separated): ").strip()
+                    if not file_paths:
+                        print("❌ No file path provided.")
+                        continue
+                    files = [f.strip() for f in file_paths.split(",") if f.strip()]
+
+                    dry_run = mode_choice == "6"
+                    if not dry_run:
+                        print(f"\n⚠️  This will set product types from {len(files)} file(s) for ALL products in the Excel!")
+                        confirm = input("Continue? (y/N): ").strip().lower()
+                        if confirm not in ['y', 'yes']:
+                            print("Operation cancelled.")
+                            return True
+
+                    import subprocess
+                    args = ["python", "scripts/bulk-product-type-handler/main.py",
+                            "--action", "import", "--file"] + files
+                    if dry_run:
+                        args.append("--dry-run")
+                    result = subprocess.run(args, cwd=os.getcwd())
+                    success = result.returncode == 0
+                    break
                 else:
-                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-4.")
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-6.")
                     continue
 
             except KeyboardInterrupt:
