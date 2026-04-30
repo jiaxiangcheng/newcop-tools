@@ -20,14 +20,12 @@ Required environment variables:
 import os
 import sys
 import logging
-import signal
 from datetime import datetime
 from typing import Optional, Dict, Any, Set, List
 from dotenv import load_dotenv
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.executors.pool import ThreadPoolExecutor
-import atexit
 
 # Add project root to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -411,38 +409,29 @@ class InventorySyncOrchestrator:
             logger.info("🔄 Starting scheduled inventory sync mode...")
             logger.info(f"📅 Will sync every {self._format_interval_display(self.sync_interval_minutes)}")
             logger.info("⏹️  Press Ctrl+C to stop")
-            
+
             self.is_running = True
-            
-            # Setup signal handlers for graceful shutdown
-            def signal_handler(_signum, _frame):
-                logger.info("\n⏹️  Shutdown signal received, stopping scheduler...")
-                self.stop_scheduler()
-                sys.exit(0)
-            
-            signal.signal(signal.SIGINT, signal_handler)
-            signal.signal(signal.SIGTERM, signal_handler)
-            
+
             # Run an initial sync
             logger.info("🚀 Running initial sync...")
             self.run_single_sync()
-            
-            # Start the scheduler
+
+            # Start the scheduler (blocks until shutdown)
             self.scheduler.start()
-            
-        except KeyboardInterrupt:
-            logger.info("\n⏹️  Keyboard interrupt received")
+
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("\n⏹️  Shutdown signal received, stopping scheduler...")
             self.stop_scheduler()
         except Exception as e:
             logger.error(f"💥 Scheduler failed: {e}")
             self.stop_scheduler()
     
     def stop_scheduler(self):
-        """Stop the scheduler gracefully"""
+        """Stop the scheduler immediately"""
         try:
             if self.scheduler and self.scheduler.running:
                 logger.info("⏹️  Stopping scheduler...")
-                self.scheduler.shutdown(wait=True)
+                self.scheduler.shutdown(wait=False)
                 logger.info("✅ Scheduler stopped")
             self.is_running = False
         except Exception as e:

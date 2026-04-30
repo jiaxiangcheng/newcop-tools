@@ -16,7 +16,6 @@ import os
 import sys
 import logging
 import concurrent.futures
-import signal
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
@@ -190,33 +189,34 @@ class DynamicCollectionManager:
     def execute_all_collection_jobs(self, collections_with_jobs: List[CollectionWithJobSettings]) -> List[Dict[str, Any]]:
         """Execute jobs for all collections using parallel processing"""
         logger.info(f"Executing jobs for {len(collections_with_jobs)} collections using parallel processing...")
-        
+
         results = []
         successful_jobs = 0
-        
+
         # Use ThreadPoolExecutor to process collections in parallel
         max_workers = min(len(collections_with_jobs), 3)  # Limit to 3 concurrent threads to avoid rate limits
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        try:
             # Submit all jobs
             future_to_collection = {
-                executor.submit(self.execute_collection_job, collection): collection 
+                executor.submit(self.execute_collection_job, collection): collection
                 for collection in collections_with_jobs
             }
-            
+
             # Collect results as they complete
             for future in concurrent.futures.as_completed(future_to_collection):
                 collection = future_to_collection[future]
                 try:
                     result = future.result()
                     results.append(result)
-                    
+
                     if result.get("success"):
                         successful_jobs += 1
                         logger.info(f"✅ Collection '{collection.collection_title}' completed successfully")
                     else:
                         logger.error(f"❌ Collection '{collection.collection_title}' failed: {result.get('error', 'Unknown error')}")
-                        
+
                 except Exception as e:
                     logger.error(f"❌ Collection '{collection.collection_title}' encountered exception: {e}")
                     results.append({
@@ -225,7 +225,14 @@ class DynamicCollectionManager:
                         "collection_id": collection.collection_id,
                         "collection_title": collection.collection_title
                     })
-        
+        except KeyboardInterrupt:
+            logger.info("⏹️  Interrupted, cancelling remaining jobs...")
+            for future in future_to_collection:
+                future.cancel()
+            raise
+        finally:
+            executor.shutdown(wait=False)
+
         logger.info(f"Completed {successful_jobs}/{len(collections_with_jobs)} jobs successfully")
         return results
     
@@ -307,6 +314,9 @@ class DynamicCollectionManager:
 
             return result
 
+        except KeyboardInterrupt:
+            logger.info("⏹️  Dynamic collection management interrupted by user")
+            raise
         except Exception as e:
             logger.error(f"Dynamic collection management failed: {e}")
             return {"success": False, "error": str(e)}
@@ -359,38 +369,29 @@ class DynamicCollectionManager:
             logger.info("🔄 Starting scheduled dynamic collections mode...")
             logger.info(f"📅 Will sync every {self.sync_interval_days} days")
             logger.info("⏹️  Press Ctrl+C to stop")
-            
+
             self.is_running = True
-            
-            # Setup signal handlers for graceful shutdown
-            def signal_handler(signum, frame):
-                logger.info("\n⏹️  Shutdown signal received, stopping scheduler...")
-                self.stop_scheduler()
-                sys.exit(0)
-            
-            signal.signal(signal.SIGINT, signal_handler)
-            signal.signal(signal.SIGTERM, signal_handler)
-            
+
             # Run an initial sync
             logger.info("🚀 Running initial sync...")
             self.run()
-            
-            # Start the scheduler
+
+            # Start the scheduler (blocks until shutdown)
             self.scheduler.start()
-            
-        except KeyboardInterrupt:
-            logger.info("\n⏹️  Keyboard interrupt received")
+
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("\n⏹️  Shutdown signal received, stopping scheduler...")
             self.stop_scheduler()
         except Exception as e:
             logger.error(f"💥 Scheduler failed: {e}")
             self.stop_scheduler()
     
     def stop_scheduler(self):
-        """Stop the scheduler gracefully"""
+        """Stop the scheduler immediately"""
         try:
             if self.scheduler and self.scheduler.running:
                 logger.info("⏹️  Stopping scheduler...")
-                self.scheduler.shutdown(wait=True)
+                self.scheduler.shutdown(wait=False)
                 logger.info("✅ Scheduler stopped")
             self.is_running = False
         except Exception as e:
