@@ -175,7 +175,8 @@ class WebgainsReportEnricher:
             return False
 
     def process_batch(self, input_dir: Optional[str] = None, output_dir: Optional[str] = None,
-                     dry_run: bool = False, limit: Optional[int] = None) -> bool:
+                     dry_run: bool = False, limit: Optional[int] = None,
+                     merged: bool = False) -> bool:
         """
         Process all Excel files in a directory
 
@@ -184,6 +185,7 @@ class WebgainsReportEnricher:
             output_dir: Output directory path (default: enriched_webgains_reports/)
             dry_run: If True, only analyze without making API calls
             limit: Optional limit on number of records per file
+            merged: If True, combine all files into a single output Excel
 
         Returns:
             True if all files processed successfully, False otherwise
@@ -212,10 +214,18 @@ class WebgainsReportEnricher:
         logger.info(f"Input directory: {input_path}")
         logger.info(f"Output directory: {output_path}")
         logger.info(f"Found {len(excel_files)} Excel file(s)")
+        logger.info(f"Output mode: {'MERGED (single file)' if merged else 'SEPARATE (per month)'}")
         logger.info("=" * 80)
         print()
 
-        # Process each file
+        if merged:
+            return self._process_batch_merged(excel_files, output_path, dry_run, limit)
+        else:
+            return self._process_batch_separate(excel_files, output_path, dry_run, limit)
+
+    def _process_batch_separate(self, excel_files: List[Path], output_path: Path,
+                                dry_run: bool, limit: Optional[int]) -> bool:
+        """Process batch with separate output files per input file"""
         success_count = 0
         failed_files = []
 
@@ -255,6 +265,82 @@ class WebgainsReportEnricher:
         logger.info(f"Total files: {len(excel_files)}")
         logger.info(f"Successful: {success_count}")
         logger.info(f"Failed: {len(failed_files)}")
+
+        if failed_files:
+            logger.info("\nFailed files:")
+            for filename in failed_files:
+                logger.info(f"  - {filename}")
+
+        logger.info("=" * 80)
+
+        return len(failed_files) == 0
+
+    def _process_batch_merged(self, excel_files: List[Path], output_path: Path,
+                              dry_run: bool, limit: Optional[int]) -> bool:
+        """Process batch and merge all records into a single output file"""
+        all_enriched_records = []
+        success_count = 0
+        failed_files = []
+
+        for i, input_file in enumerate(excel_files, 1):
+            logger.info(f"\n[{i}/{len(excel_files)}] Processing: {input_file.name}")
+            logger.info("-" * 80)
+
+            try:
+                # Step 1: Load and parse
+                processor = ReportProcessor(str(input_file))
+                if not processor.load_workbook():
+                    failed_files.append(input_file.name)
+                    logger.error(f"❌ Failed to load: {input_file.name}")
+                    continue
+
+                records = processor.parse_records(limit=limit)
+                processor.close()
+
+                if not records:
+                    logger.warning(f"No records found in {input_file.name}, skipping")
+                    continue
+
+                logger.info(f"Parsed {len(records)} records from {input_file.name}")
+
+                # Step 2: Enrich records
+                enricher = OrderEnricher(self.shopify_client, max_workers=5)
+                result = enricher.enrich_records(records, dry_run=dry_run)
+
+                all_enriched_records.extend(result.enriched_records)
+                success_count += 1
+                logger.info(f"✅ Successfully processed: {input_file.name} ({len(result.enriched_records)} records)")
+
+            except Exception as e:
+                failed_files.append(input_file.name)
+                logger.error(f"❌ Error processing {input_file.name}: {e}")
+
+            print()
+
+        # Write merged output
+        if all_enriched_records and not dry_run:
+            merged_output_file = output_path / "Transacciones_all_merged_enriched.xlsx"
+            logger.info(f"\nWriting {len(all_enriched_records)} merged records to {merged_output_file}...")
+
+            writer = ExcelWriter(str(merged_output_file))
+            if not writer.write_records(all_enriched_records):
+                logger.error("Failed to write merged output file")
+                return False
+            writer.close()
+
+            logger.info(f"✅ Merged report saved to: {merged_output_file}")
+
+        # Summary
+        logger.info("=" * 80)
+        logger.info("BATCH PROCESSING SUMMARY (MERGED)")
+        logger.info("=" * 80)
+        logger.info(f"Total files: {len(excel_files)}")
+        logger.info(f"Successful: {success_count}")
+        logger.info(f"Failed: {len(failed_files)}")
+        logger.info(f"Total merged records: {len(all_enriched_records)}")
+
+        if not dry_run and all_enriched_records:
+            logger.info(f"Output: {output_path / 'Transacciones_all_merged_enriched.xlsx'}")
 
         if failed_files:
             logger.info("\nFailed files:")
@@ -312,6 +398,12 @@ Examples:
     )
 
     parser.add_argument(
+        "--merged",
+        action="store_true",
+        help="Merge all batch files into a single output Excel (only with --batch)"
+    )
+
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Preview what would be processed without making API calls"
@@ -344,7 +436,8 @@ Examples:
                 input_dir=args.input_dir,
                 output_dir=args.output_dir,
                 dry_run=args.dry_run,
-                limit=args.limit
+                limit=args.limit,
+                merged=args.merged
             )
         else:
             # Single file mode

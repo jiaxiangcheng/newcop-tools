@@ -65,6 +65,9 @@ def show_menu():
     print("10. 🏷️  Set Product Type - Set product types based on collection and tags")
     print("11. 💳 Scalapay Orders - Export all orders paid with Scalapay to Excel")
     print("12. 🏷️  Inventory Tags - Set instore-online/instore-only tags based on inventory")
+    print("13. 📋 Duplicate Products - Duplicate in-stock products from a collection")
+    print("14. 👥 Get Customers - Export customers for Meta Custom Audience CSV")
+    print("15. 🏷️  Bulk Product Type - Batch operations on product types (list/find/replace)")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -382,6 +385,27 @@ def run_webgains_report_enricher() -> bool:
         elif mode_choice == "3":
             batch_mode = True
 
+        # Ask for merged output if batch mode
+        merged = False
+        if batch_mode:
+            print("\n📦 Output format:")
+            print("1. 📅 Separate files per month (default)")
+            print("2. 📋 Single merged file (all data combined)")
+            while True:
+                try:
+                    format_choice = input("\n🔸 Choose output format (1/2): ").strip()
+                    if format_choice in ["", "1"]:
+                        merged = False
+                        break
+                    elif format_choice == "2":
+                        merged = True
+                        break
+                    else:
+                        print(f"❌ Invalid choice: '{format_choice}'. Please select 1 or 2.")
+                except (EOFError, KeyboardInterrupt):
+                    print("\n⏹️  Operation cancelled by user")
+                    return True
+
         # Validate environment
         if not enricher.validate_environment():
             return False
@@ -421,7 +445,8 @@ def run_webgains_report_enricher() -> bool:
                 input_dir=None,  # Use default
                 output_dir=None,  # Use default
                 dry_run=dry_run,
-                limit=limit
+                limit=limit,
+                merged=merged
             )
         else:
             # Process single file
@@ -1024,6 +1049,229 @@ def run_inventory_tags() -> bool:
         return False
 
 
+def run_duplicate_products() -> bool:
+    """Run the duplicate products from collection script"""
+    try:
+        print("\n📋 Starting Duplicate Products from Collection...")
+        print("=" * 60)
+
+        print("Select execution mode:")
+        print("1. 📋 Duplicate Products (enter collection ID)")
+        print("2. 🧪 Dry Run (analyze without making changes)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice in ["1", "2"]:
+                    collection_id = input("\n🎯 Enter source collection ID: ").strip()
+                    if not collection_id:
+                        print("❌ No collection ID provided.")
+                        continue
+
+                    dry_run = mode_choice == "2"
+                    import subprocess
+                    args = ["python", "scripts/duplicate-products-from-collection/main.py", "--collection", collection_id]
+                    if dry_run:
+                        args.append("--dry-run")
+                    result = subprocess.run(args, cwd=os.getcwd())
+                    success = result.returncode == 0
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-2.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Duplicate Products completed successfully!")
+        else:
+            print("❌ Duplicate Products completed with errors.")
+
+        return success
+
+    except Exception as e:
+        print(f"❌ Unexpected error running duplicate products: {e}")
+        return False
+
+
+def run_get_customers_menu() -> bool:
+    """Run the get customers for Meta audience export script"""
+    try:
+        print("\n👥 Starting Get Customers for Meta Audience Export...")
+        print("=" * 60)
+
+        print("Select execution mode:")
+        print("1. 📤 Export All (fetch all customers and export to CSV)")
+        print("2. 🧪 Dry Run (analyze customers without writing files)")
+        print("3. 🔢 Limited Export (export first N customers)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    from scripts.get_customers.main import run_get_customers
+                    success = run_get_customers(dry_run=False, limit=None)
+                    break
+                elif mode_choice == "2":
+                    from scripts.get_customers.main import run_get_customers
+                    success = run_get_customers(dry_run=True, limit=None)
+                    break
+                elif mode_choice == "3":
+                    limit_input = input("\n🔢 Enter limit (number of customers to fetch): ").strip()
+                    if not limit_input.isdigit():
+                        print("❌ Please enter a valid number.")
+                        continue
+                    limit = int(limit_input)
+                    from scripts.get_customers.main import run_get_customers
+                    success = run_get_customers(dry_run=False, limit=limit)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Get Customers Export completed successfully!")
+        else:
+            print("❌ Get Customers Export completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing get customers script: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running get customers export: {e}")
+        return False
+
+
+def run_bulk_product_type_menu() -> bool:
+    """Run the bulk product type handler script"""
+    try:
+        print("\n🏷️  Starting Bulk Product Type Handler...")
+        print("=" * 60)
+
+        print("Select operation:")
+        print("1. 📋 List Empty Type Products (export to CSV)")
+        print("2. 🔍 Find Products by Type (export to CSV)")
+        print("3. 🔄 Replace Product Type (update and export change log)")
+        print("4. 🧪 Dry Run Replace (analyze without making changes)")
+        print("5. 📥 Import Product Types from Excel (set types from file)")
+        print("6. 🧪 Dry Run Import (analyze Excel without making changes)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose operation: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/bulk-product-type-handler/main.py", "--action", "empty"],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice == "2":
+                    product_type = input("\n🏷️  Enter product type to search: ").strip()
+                    if not product_type:
+                        print("❌ No product type provided.")
+                        continue
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "scripts/bulk-product-type-handler/main.py",
+                         "--action", "find", "--type", product_type],
+                        cwd=os.getcwd()
+                    )
+                    success = result.returncode == 0
+                    break
+                elif mode_choice in ["3", "4"]:
+                    old_type = input("\n🏷️  Enter current product type: ").strip()
+                    if not old_type:
+                        print("❌ No product type provided.")
+                        continue
+                    new_type = input("🏷️  Enter new product type: ").strip()
+                    if not new_type:
+                        print("❌ No new product type provided.")
+                        continue
+
+                    dry_run = mode_choice == "4"
+                    if not dry_run:
+                        print(f"\n⚠️  This will replace '{old_type}' → '{new_type}' for ALL matching products!")
+                        confirm = input("Continue? (y/N): ").strip().lower()
+                        if confirm not in ['y', 'yes']:
+                            print("Operation cancelled.")
+                            return True
+
+                    import subprocess
+                    args = ["python", "scripts/bulk-product-type-handler/main.py",
+                            "--action", "replace", "--type", old_type, "--new-type", new_type]
+                    if dry_run:
+                        args.append("--dry-run")
+                    result = subprocess.run(args, cwd=os.getcwd())
+                    success = result.returncode == 0
+                    break
+                elif mode_choice in ["5", "6"]:
+                    file_paths = input("\n📁 Enter Excel file path(s) (comma-separated): ").strip()
+                    if not file_paths:
+                        print("❌ No file path provided.")
+                        continue
+                    files = [f.strip() for f in file_paths.split(",") if f.strip()]
+
+                    dry_run = mode_choice == "6"
+                    if not dry_run:
+                        print(f"\n⚠️  This will set product types from {len(files)} file(s) for ALL products in the Excel!")
+                        confirm = input("Continue? (y/N): ").strip().lower()
+                        if confirm not in ['y', 'yes']:
+                            print("Operation cancelled.")
+                            return True
+
+                    import subprocess
+                    args = ["python", "scripts/bulk-product-type-handler/main.py",
+                            "--action", "import", "--file"] + files
+                    if dry_run:
+                        args.append("--dry-run")
+                    result = subprocess.run(args, cwd=os.getcwd())
+                    success = result.returncode == 0
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-6.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Bulk Product Type operation completed successfully!")
+        else:
+            print("❌ Bulk Product Type operation completed with errors.")
+
+        return success
+
+    except Exception as e:
+        print(f"❌ Unexpected error running bulk product type handler: {e}")
+        return False
+
+
 def get_user_choice() -> str:
     """Get user input with validation"""
     while True:
@@ -1065,6 +1313,9 @@ def main():
         "10": run_set_product_type,
         "11": run_scalapay_orders,
         "12": run_inventory_tags,
+        "13": run_duplicate_products,
+        "14": run_get_customers_menu,
+        "15": run_bulk_product_type_menu,
     }
     
     # Check if we're in a virtual environment
