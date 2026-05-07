@@ -1541,6 +1541,9 @@ class ShopifyClient:
                   variantTitle
                   sku
                   quantity
+                  product {
+                    tags
+                  }
                 }
               }
             }

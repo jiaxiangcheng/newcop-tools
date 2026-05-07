@@ -302,26 +302,52 @@ class ExcelWriter:
         return stats
 
     def _calculate_commission_type_stats(self, records: List[EnrichedRecord]) -> List[tuple]:
-        """Calculate commission type (retail vs resell) statistics"""
-        from collections import Counter
+        """
+        Calculate commission type (retail vs resell) statistics based on product tags.
 
-        commission_counts = Counter()
-        total = 0
+        For each order, check the tags of its line items:
+        - If a product has the 'retail' tag -> count as Retail
+        - If a product does NOT have the 'retail' tag -> count as Resell
+        - If an order has both retail and non-retail products, both categories get +1
+        """
+        retail_count = 0
+        resell_count = 0
 
         for record in records:
-            if record.commission_type:
-                # Normalize to lowercase for comparison
-                comm_type = record.commission_type.strip().lower()
-                commission_counts[comm_type] += 1
-                total += 1
+            if not record.shopify_order_data or not record.shopify_order_data.line_items:
+                # No Shopify data available, fall back to Webgains commission_type
+                if record.commission_type:
+                    comm_type = record.commission_type.strip().lower()
+                    if comm_type == "retail":
+                        retail_count += 1
+                    else:
+                        resell_count += 1
+                continue
 
-        # Sort by count descending
+            has_retail = False
+            has_resell = False
+
+            for item in record.shopify_order_data.line_items:
+                # Check if any tag (case-insensitive) is 'retail'
+                item_tags_lower = [t.lower() for t in item.tags]
+                if "retail" in item_tags_lower:
+                    has_retail = True
+                else:
+                    has_resell = True
+
+            if has_retail:
+                retail_count += 1
+            if has_resell:
+                resell_count += 1
+
+        total = retail_count + resell_count
         stats = []
-        for comm_type, count in commission_counts.most_common():
-            percentage = (count / total * 100) if total > 0 else 0
-            # Capitalize first letter for display
-            display_name = comm_type.capitalize()
-            stats.append((display_name, count, f"{percentage:.2f}%"))
+        if retail_count > 0:
+            percentage = (retail_count / total * 100) if total > 0 else 0
+            stats.append(("Retail", retail_count, f"{percentage:.2f}%"))
+        if resell_count > 0:
+            percentage = (resell_count / total * 100) if total > 0 else 0
+            stats.append(("Resell", resell_count, f"{percentage:.2f}%"))
 
         return stats
 

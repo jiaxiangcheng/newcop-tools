@@ -56,6 +56,7 @@ class LineItem(BaseModel):
     variant_title: Optional[str] = Field(None, alias="variantTitle")
     sku: Optional[str] = None
     quantity: Optional[int] = None
+    tags: List[str] = Field(default_factory=list)
 
     class Config:
         populate_by_name = True
