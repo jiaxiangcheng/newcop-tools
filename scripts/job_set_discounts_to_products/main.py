@@ -26,14 +26,12 @@ Required Shopify permissions:
 import os
 import sys
 import logging
-import signal
 from datetime import datetime
 from typing import Optional
 from dotenv import load_dotenv
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.executors.pool import ThreadPoolExecutor
-import atexit
 
 # Add project root to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -218,30 +216,17 @@ class ProductDiscountOrchestrator:
                 replace_existing=True
             )
 
-            # Register shutdown handler
-            def shutdown_handler(signum, frame):
-                logger.info("\n⏹️  Shutdown signal received, stopping scheduler...")
-                if self.scheduler and self.scheduler.running:
-                    self.scheduler.shutdown(wait=True)
-                sys.exit(0)
-
-            signal.signal(signal.SIGINT, shutdown_handler)
-            signal.signal(signal.SIGTERM, shutdown_handler)
-
-            # Register cleanup on exit
-            atexit.register(lambda: self.scheduler.shutdown(wait=False) if self.scheduler else None)
-
             logger.info("✅ Scheduler configured successfully")
             logger.info("⏰ Next run scheduled for: Today/Tomorrow at 00:00")
             logger.info("🔄 Scheduler starting... (Press Ctrl+C to stop)")
 
-            # Start scheduler
+            # Start scheduler (blocks until shutdown)
             self.is_running = True
             self.scheduler.start()
 
             return True
 
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, SystemExit):
             logger.info("\n⏹️  Scheduler stopped by user")
             return False
 

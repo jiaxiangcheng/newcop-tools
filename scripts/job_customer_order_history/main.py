@@ -9,7 +9,6 @@ Supports manual, scheduled, and dry-run modes.
 import os
 import sys
 import logging
-import signal
 import argparse
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -275,15 +274,6 @@ class CustomerOrderHistoryOrchestrator:
         """Start scheduler in blocking mode"""
         self.is_running = True
 
-        # Setup signal handlers for graceful shutdown
-        def signal_handler(signum, frame):
-            logger.info("\n⏹️  Shutdown signal received, stopping scheduler...")
-            self.stop_scheduler()
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-
         logger.info("\n" + "=" * 60)
         logger.info("🚀 Starting scheduled mode")
         logger.info("=" * 60)
@@ -310,7 +300,8 @@ class CustomerOrderHistoryOrchestrator:
         try:
             self.scheduler.start()
         except (KeyboardInterrupt, SystemExit):
-            logger.info("Scheduler stopped")
+            logger.info("\n⏹️  Shutdown signal received, stopping scheduler...")
+            self.stop_scheduler()
 
     def stop_scheduler(self):
         """Stop the scheduler gracefully"""
