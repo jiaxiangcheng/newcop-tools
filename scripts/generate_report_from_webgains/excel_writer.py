@@ -48,6 +48,7 @@ class ExcelWriter:
 
         # Enriched Shopify columns
         ("Product Names", "product_names"),
+        ("Product Types", "product_types"),
         ("Variant Names", "variant_names"),
         ("Product SKUs", "product_skus"),
         ("Financial Status", "financial_status"),
@@ -301,14 +302,34 @@ class ExcelWriter:
 
         return stats
 
+    @staticmethod
+    def _classify_product_type(product_type):
+        """Classify a product type as 'retail', 'resell', or None (unknown).
+
+        Rules (case-insensitive contains): 'newcop clothing' or 'retail' -> retail;
+        'resell' -> resell; otherwise unknown.
+        """
+        if not product_type:
+            return None
+        pt_lower = product_type.lower()
+        if "newcop clothing" in pt_lower:
+            return "retail"
+        if "retail" in pt_lower:
+            return "retail"
+        if "resell" in pt_lower:
+            return "resell"
+        return None
+
     def _calculate_commission_type_stats(self, records: List[EnrichedRecord]) -> List[tuple]:
         """
-        Calculate commission type (retail vs resell) statistics based on product tags.
+        Calculate commission type (retail vs resell) statistics based on product type.
 
-        For each order, check the tags of its line items:
-        - If a product has the 'retail' tag -> count as Retail
-        - If a product does NOT have the 'retail' tag -> count as Resell
-        - If an order has both retail and non-retail products, both categories get +1
+        For each order, classify each line item by its Shopify product type:
+        - product type contains 'retail' or equals 'newcop clothing' -> Retail
+        - product type contains 'resell' -> Resell
+        - If an order has both, both categories get +1
+        - If all line items have unknown/empty product type, fall back to
+          Webgains commission_type for that record
         """
         retail_count = 0
         resell_count = 0
@@ -328,17 +349,25 @@ class ExcelWriter:
             has_resell = False
 
             for item in record.shopify_order_data.line_items:
-                # Check if any tag (case-insensitive) is 'retail'
-                item_tags_lower = [t.lower() for t in item.tags]
-                if "retail" in item_tags_lower:
+                classification = self._classify_product_type(item.product_type)
+                if classification == "retail":
                     has_retail = True
-                else:
+                elif classification == "resell":
                     has_resell = True
 
             if has_retail:
                 retail_count += 1
             if has_resell:
                 resell_count += 1
+
+            # All line items had unknown product type → fallback to Webgains commission_type
+            if not has_retail and not has_resell:
+                if record.commission_type:
+                    comm_type = record.commission_type.strip().lower()
+                    if comm_type == "retail":
+                        retail_count += 1
+                    else:
+                        resell_count += 1
 
         total = retail_count + resell_count
         stats = []

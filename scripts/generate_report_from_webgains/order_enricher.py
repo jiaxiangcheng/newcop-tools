@@ -280,18 +280,22 @@ class OrderEnricher:
             line_items_raw = order_data.get("lineItems", {}).get("edges", [])
             for edge in line_items_raw:
                 node = edge.get("node", {})
-                # Parse product tags
+                # Parse product tags and product type
                 product_tags = []
+                product_type = None
                 product_raw = node.get("product")
-                if product_raw and product_raw.get("tags"):
-                    product_tags = product_raw["tags"]
+                if product_raw:
+                    if product_raw.get("tags"):
+                        product_tags = product_raw["tags"]
+                    product_type = product_raw.get("productType")
 
                 line_item = LineItem(
                     title=node.get("title"),
                     variantTitle=node.get("variantTitle"),
                     sku=node.get("sku"),
                     quantity=node.get("quantity"),
-                    tags=product_tags
+                    tags=product_tags,
+                    productType=product_type
                 )
                 line_items.append(line_item)
 

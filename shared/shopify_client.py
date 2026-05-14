@@ -1542,6 +1542,7 @@ class ShopifyClient:
                   sku
                   quantity
                   product {
+                    productType
                     tags
                   }
                 }

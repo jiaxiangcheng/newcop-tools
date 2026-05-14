@@ -57,6 +57,7 @@ class LineItem(BaseModel):
     sku: Optional[str] = None
     quantity: Optional[int] = None
     tags: List[str] = Field(default_factory=list)
+    product_type: Optional[str] = Field(None, alias="productType")
 
     class Config:
         populate_by_name = True
@@ -182,6 +183,14 @@ class EnrichedRecord(BaseModel):
             return ""
         names = [item.title for item in self.shopify_order_data.line_items if item.title]
         return ", ".join(names) if names else ""
+
+    @property
+    def product_types(self) -> str:
+        """Product types from line items (comma-separated)"""
+        if not self.shopify_order_data or not self.shopify_order_data.line_items:
+            return ""
+        types = [item.product_type for item in self.shopify_order_data.line_items if item.product_type]
+        return ", ".join(types) if types else ""
 
     @property
     def variant_names(self) -> str:

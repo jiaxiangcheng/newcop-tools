@@ -68,6 +68,7 @@ def show_menu():
     print("13. 📋 Duplicate Products - Duplicate in-stock products from a collection")
     print("14. 👥 Get Customers - Export customers for Meta Custom Audience CSV")
     print("15. 🏷️  Bulk Product Type - Batch operations on product types (list/find/replace)")
+    print("16. 🧹 Delete Catalog Fixed Prices - Clear all fixed prices in a Catalog's PriceList")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -1296,9 +1297,75 @@ def wait_for_enter():
         print("\n\n👋 Goodbye!")
         sys.exit(0)
 
+def run_delete_catalog_fixed_prices_menu() -> bool:
+    """Run the Delete Catalog Fixed Prices script with user mode selection"""
+    try:
+        print("\n🧹 Starting Delete Catalog Fixed Prices Script...")
+        print("=" * 60)
+
+        catalog_id = input("🔸 Enter Catalog ID (numeric, e.g. 179292701013): ").strip()
+        if not catalog_id:
+            print("❌ No Catalog ID provided.")
+            return False
+
+        print("\nSelect execution mode:")
+        print("1. 🧪 Dry Run (resolve PriceList and count, no deletion)")
+        print("2. 🗑️  Delete (real deletion, requires typing 'yes' to confirm)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    from scripts.job_delete_catalog_fixed_prices.main import (
+                        run_delete_catalog_fixed_prices,
+                    )
+                    success = run_delete_catalog_fixed_prices(
+                        catalog_id=catalog_id,
+                        dry_run=True,
+                        skip_confirm=True,
+                    )
+                    break
+                elif mode_choice == "2":
+                    from scripts.job_delete_catalog_fixed_prices.main import (
+                        run_delete_catalog_fixed_prices,
+                    )
+                    success = run_delete_catalog_fixed_prices(
+                        catalog_id=catalog_id,
+                        dry_run=False,
+                        skip_confirm=False,
+                    )
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-2.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Delete Catalog Fixed Prices Script completed successfully!")
+        else:
+            print("❌ Delete Catalog Fixed Prices Script completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing delete catalog fixed prices script: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running delete catalog fixed prices: {e}")
+        return False
+
+
 def main():
     """Main CLI loop"""
-    
+
     # Dictionary mapping choices to functions
     script_functions: Dict[str, Callable] = {
         "1": run_dynamic_collections,
@@ -1316,6 +1383,7 @@ def main():
         "13": run_duplicate_products,
         "14": run_get_customers_menu,
         "15": run_bulk_product_type_menu,
+        "16": run_delete_catalog_fixed_prices_menu,
     }
     
     # Check if we're in a virtual environment
