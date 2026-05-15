@@ -69,6 +69,7 @@ def show_menu():
     print("14. 👥 Get Customers - Export customers for Meta Custom Audience CSV")
     print("15. 🏷️  Bulk Product Type - Batch operations on product types (list/find/replace)")
     print("16. 🧹 Delete Catalog Fixed Prices - Clear all fixed prices in a Catalog's PriceList")
+    print("17. 🚚 Duplicate Shipping Profile - Clone an existing Delivery Profile (interactive)")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -1363,6 +1364,59 @@ def run_delete_catalog_fixed_prices_menu() -> bool:
         return False
 
 
+def run_duplicate_shipping_profile_menu() -> bool:
+    """Run the Duplicate Shipping Profile script with user mode selection"""
+    try:
+        print("\n🚚 Starting Duplicate Shipping Profile Script...")
+        print("=" * 60)
+
+        print("Select execution mode:")
+        print("1. 🧪 Dry Run (read source, print transformed input, no creation)")
+        print("2. 🚀 Live (create the duplicate profile)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    from scripts.duplicate_shipping_profile.main import (
+                        run_duplicate_shipping_profile,
+                    )
+                    success = run_duplicate_shipping_profile(dry_run=True)
+                    break
+                elif mode_choice == "2":
+                    from scripts.duplicate_shipping_profile.main import (
+                        run_duplicate_shipping_profile,
+                    )
+                    success = run_duplicate_shipping_profile(dry_run=False)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-2.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Duplicate Shipping Profile completed successfully!")
+        else:
+            print("❌ Duplicate Shipping Profile completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing duplicate shipping profile script: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running duplicate shipping profile: {e}")
+        return False
+
+
 def main():
     """Main CLI loop"""
 
@@ -1384,6 +1438,7 @@ def main():
         "14": run_get_customers_menu,
         "15": run_bulk_product_type_menu,
         "16": run_delete_catalog_fixed_prices_menu,
+        "17": run_duplicate_shipping_profile_menu,
     }
     
     # Check if we're in a virtual environment

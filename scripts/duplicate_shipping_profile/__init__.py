@@ -1,0 +1,1 @@
+"""Duplicate Shipping Profile module."""
