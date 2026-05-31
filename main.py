@@ -70,6 +70,7 @@ def show_menu():
     print("15. 🏷️  Bulk Product Type - Batch operations on product types (list/find/replace)")
     print("16. 🧹 Delete Catalog Fixed Prices - Clear all fixed prices in a Catalog's PriceList")
     print("17. 🚚 Duplicate Shipping Profile - Clone an existing Delivery Profile (interactive)")
+    print("18. 🖼️  Rename Product Media - Rename media filenames & alt text to newcop format")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -1417,6 +1418,83 @@ def run_duplicate_shipping_profile_menu() -> bool:
         return False
 
 
+def _prompt_optional_limit() -> 'int | None':
+    """Ask for an optional product limit (blank = all products)."""
+    raw = input("\n🔸 Limit number of products (blank = all): ").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+        return value if value > 0 else None
+    except ValueError:
+        print("⚠️  Invalid number, processing all products.")
+        return None
+
+
+def run_rename_product_media_menu() -> bool:
+    """Run the Rename Product Media script with user mode selection"""
+    try:
+        print("\n🖼️  Starting Rename Product Media Script...")
+        print("=" * 60)
+        print("Renames image filenames + alt text to: newcop-[title]-[vendor]-[position]")
+        print("Videos/3D models: alt text only (Shopify does not allow renaming them).")
+
+        print("\nSelect execution mode:")
+        print("1. 🔧 Manual (run once, live)")
+        print("2. 🔄 Scheduled (run daily at 02:00)")
+        print("3. 🧪 Dry Run (analyze changes only)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    limit = _prompt_optional_limit()
+                    from scripts.job_rename_product_media.main import run_rename_product_media
+                    success = run_rename_product_media(mode="manual", dry_run=False, limit=limit)
+                    break
+                elif mode_choice == "2":
+                    print("\n⚠️  Scheduled mode runs continuously (daily at 02:00). Press Ctrl+C to stop.")
+                    confirm = input("Continue? (y/N): ").strip().lower()
+                    if confirm in ["y", "yes"]:
+                        from scripts.job_rename_product_media.main import run_rename_product_media
+                        success = run_rename_product_media(mode="scheduled", dry_run=False)
+                    else:
+                        success = True
+                    break
+                elif mode_choice == "3":
+                    limit = _prompt_optional_limit()
+                    from scripts.job_rename_product_media.main import run_rename_product_media
+                    success = run_rename_product_media(mode="manual", dry_run=True, limit=limit)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-3.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ Rename Product Media completed successfully!")
+        else:
+            print("❌ Rename Product Media completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing rename product media script: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install APScheduler")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running rename product media: {e}")
+        return False
+
+
 def main():
     """Main CLI loop"""
 
@@ -1439,6 +1517,7 @@ def main():
         "15": run_bulk_product_type_menu,
         "16": run_delete_catalog_fixed_prices_menu,
         "17": run_duplicate_shipping_profile_menu,
+        "18": run_rename_product_media_menu,
     }
     
     # Check if we're in a virtual environment
