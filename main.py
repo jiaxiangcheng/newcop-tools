@@ -71,6 +71,7 @@ def show_menu():
     print("16. 🧹 Delete Catalog Fixed Prices - Clear all fixed prices in a Catalog's PriceList")
     print("17. 🚚 Duplicate Shipping Profile - Clone an existing Delivery Profile (interactive)")
     print("18. 🖼️  Rename Product Media - Rename media filenames & alt text to newcop format")
+    print("19. 🔍 SEO Content Generator - Genera descriptions y meta descriptions en español con IA")
     print("\n0. 🚪 Exit")
     print("-" * 60)
 
@@ -1495,6 +1496,59 @@ def run_rename_product_media_menu() -> bool:
         return False
 
 
+def run_seo_content_menu() -> bool:
+    """Run the SEO content generator with user mode selection"""
+    try:
+        print("\n🔍 SEO Content Generator")
+        print("=" * 60)
+        print("Scans all products and generates Spanish descriptions and")
+        print("meta descriptions for products missing either field.")
+        print("Uses gpt-5-mini with web search (OpenAI Responses API).")
+
+        print("\nSelect execution mode:")
+        print("1. 🔧 Manual (run once, write to Shopify)")
+        print("2. 🧪 Dry Run (generate content only, no writes)")
+        print("0. ↩️  Return to main menu")
+
+        while True:
+            try:
+                mode_choice = input("\n🔸 Choose mode: ").strip()
+
+                if mode_choice == "0":
+                    return True
+                elif mode_choice == "1":
+                    from scripts.job_generate_seo_content.main import run_generate_seo_content
+                    success = run_generate_seo_content(mode="manual", dry_run=False)
+                    break
+                elif mode_choice == "2":
+                    from scripts.job_generate_seo_content.main import run_generate_seo_content
+                    success = run_generate_seo_content(mode="manual", dry_run=True)
+                    break
+                else:
+                    print(f"❌ Invalid choice: '{mode_choice}'. Please select 0-2.")
+                    continue
+
+            except KeyboardInterrupt:
+                print("\n⏹️  Operation cancelled by user")
+                return True
+
+        print("\n" + "=" * 60)
+        if success:
+            print("✅ SEO Content Generator completed successfully!")
+        else:
+            print("❌ SEO Content Generator completed with errors.")
+
+        return success
+
+    except ImportError as e:
+        print(f"❌ Error importing SEO content generator: {e}")
+        print("💡 Make sure you have installed the required dependencies: pip install openai")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error running SEO content generator: {e}")
+        return False
+
+
 def main():
     """Main CLI loop"""
 
@@ -1518,6 +1572,7 @@ def main():
         "16": run_delete_catalog_fixed_prices_menu,
         "17": run_duplicate_shipping_profile_menu,
         "18": run_rename_product_media_menu,
+        "19": run_seo_content_menu,
     }
     
     # Check if we're in a virtual environment
